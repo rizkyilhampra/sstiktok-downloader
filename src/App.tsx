@@ -65,54 +65,42 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl shadow-2xl">
-        <CardHeader className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl">
-              <Download className="w-8 h-8 text-white" />
-            </div>
-            <div>
-              <CardTitle className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-                TikTok Downloader
-              </CardTitle>
-              <CardDescription className="text-base mt-1">
-                Download TikTok videos without watermark - Fast & Free
-              </CardDescription>
-            </div>
-          </div>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>TikTok Downloader</CardTitle>
+          <CardDescription>
+            Download TikTok videos without watermark
+          </CardDescription>
         </CardHeader>
 
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="url" className="text-base font-medium">
-                TikTok Video URL
-              </Label>
+              <Label htmlFor="url">Video URL</Label>
               <Input
                 id="url"
                 type="text"
-                placeholder="https://www.tiktok.com/@username/video/1234567890"
+                placeholder="https://www.tiktok.com/@username/video/..."
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 disabled={loading}
-                className="h-12 text-base"
               />
             </div>
 
             <Button
               type="submit"
               disabled={loading}
-              className="w-full h-12 text-base font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+              className="w-full"
             >
               {loading ? (
                 <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Processing...
                 </>
               ) : (
                 <>
-                  <Download className="mr-2 h-5 w-5" />
+                  <Download className="mr-2 h-4 w-4" />
                   Get Download Link
                 </>
               )}
@@ -120,54 +108,28 @@ function App() {
           </form>
 
           {error && (
-            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="font-medium text-red-900">Error</p>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
-              </div>
+            <div className="flex items-start gap-2 p-3 border rounded-lg border-destructive bg-destructive/10">
+              <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
+              <div className="text-sm text-destructive">{error}</div>
             </div>
           )}
 
           {result?.success && (
-            <div className="space-y-4">
-              <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="font-medium text-green-900">Video Ready!</p>
-                  <p className="text-sm text-green-700 mt-1">
-                    Your video is ready to download without watermark.
-                  </p>
-                </div>
+            <div className="space-y-3">
+              <div className="flex items-start gap-2 p-3 border rounded-lg">
+                <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5" />
+                <div className="text-sm">Video ready to download</div>
               </div>
 
               <Button
                 onClick={handleDownload}
-                className="w-full h-12 text-base font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                className="w-full"
               >
-                <Download className="mr-2 h-5 w-5" />
+                <Download className="mr-2 h-4 w-4" />
                 Download Video
               </Button>
             </div>
           )}
-
-          <div className="pt-4 border-t">
-            <div className="bg-slate-50 rounded-lg p-4">
-              <p className="text-sm font-medium text-slate-700 mb-2">Example URL:</p>
-              <code className="text-xs text-slate-600 break-all">
-                https://www.tiktok.com/@username/video/1234567890123456789
-              </code>
-            </div>
-          </div>
-
-          <div className="text-center pt-2">
-            <p className="text-sm text-slate-500">
-              Built with React 19, TypeScript, Vite, Tailwind CSS 4 & shadcn/ui
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              Powered by ssstik.io
-            </p>
-          </div>
         </CardContent>
       </Card>
     </div>
