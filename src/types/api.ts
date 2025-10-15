@@ -6,6 +6,7 @@ export interface DownloadResponse {
   success: boolean;
   downloadUrl?: string;
   quality?: 'hd' | 'standard';
+  filename?: string;
   error?: string;
   message?: string;
 }

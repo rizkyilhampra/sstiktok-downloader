@@ -56,11 +56,12 @@ function App() {
       if (data.success && data.downloadUrl) {
         setResult(data)
 
-        // Automatically trigger download through proxy
-        const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(data.downloadUrl)}`
+        // Automatically trigger download through proxy with dynamic filename
+        const filename = data.filename || 'tiktok-video.mp4'
+        const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(data.downloadUrl)}&filename=${encodeURIComponent(filename)}`
         const a = document.createElement('a')
         a.href = proxyUrl
-        a.download = 'tiktok-video.mp4'
+        a.download = filename
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
@@ -124,11 +125,12 @@ function App() {
       if (data.success && data.downloadUrl) {
         setResult(data)
 
-        // Automatically trigger download through proxy
-        const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(data.downloadUrl)}`
+        // Automatically trigger download through proxy with dynamic filename
+        const filename = data.filename || 'tiktok-video.mp4'
+        const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(data.downloadUrl)}&filename=${encodeURIComponent(filename)}`
         const a = document.createElement('a')
         a.href = proxyUrl
-        a.download = 'tiktok-video.mp4'
+        a.download = filename
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)

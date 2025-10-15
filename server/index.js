@@ -23,6 +23,40 @@ if (isProduction) {
   app.use(express.static(distPath));
 }
 
+// Helper function to sanitize and create filename
+function createFilename(author, description) {
+  // Sanitize function: remove special chars, convert to lowercase, replace spaces with hyphens
+  const sanitize = (str) => {
+    return str
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '') // Remove special characters
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+      .trim();
+  };
+
+  // Sanitize author and description
+  const sanitizedAuthor = sanitize(author || 'unknown');
+  let sanitizedDesc = sanitize(description || 'video');
+
+  // Truncate description to max 50 characters
+  if (sanitizedDesc.length > 50) {
+    sanitizedDesc = sanitizedDesc.substring(0, 50);
+  }
+
+  // Create timestamp: 2025-01-16-143022
+  const now = new Date();
+  const timestamp = now.toISOString()
+    .replace(/T/, '-')
+    .replace(/:/g, '')
+    .replace(/\..+/, '')
+    .substring(0, 17)
+    .replace(/:/g, '');
+
+  // Combine: author-description-timestamp.mp4
+  return `${sanitizedAuthor}-${sanitizedDesc}-${timestamp}.mp4`;
+}
+
 // Step 1: Get HD download data from ssstik.io
 async function getHDDownloadData(tiktokUrl) {
   try {
@@ -55,6 +89,10 @@ async function getHDDownloadData(tiktokUrl) {
     const html = response.data;
     const $ = cheerio.load(html);
 
+    // Extract author and description for filename
+    const author = $('.result_overlay h2').text().trim() || 'unknown';
+    const description = $('.result_overlay p.maintext').text().trim() || 'video';
+
     // Try to get HD download button data
     const hdButton = $('#hd_download');
     const dataDirectUrl = hdButton.attr('data-directurl');
@@ -74,14 +112,18 @@ async function getHDDownloadData(tiktokUrl) {
       return {
         type: 'standard',
         downloadLink,
-        ttValue
+        ttValue,
+        author,
+        description
       };
     }
 
     return {
       type: 'hd',
       directUrl: dataDirectUrl,
-      ttValue
+      ttValue,
+      author,
+      description
     };
   } catch (error) {
     console.error('Error getting download data:', error.message);
@@ -204,10 +246,15 @@ app.post('/api/download', async (req, res) => {
 
     console.log('Final download URL obtained');
 
+    // Generate filename from author and description
+    const filename = createFilename(downloadData.author, downloadData.description);
+    console.log('Generated filename:', filename);
+
     res.json({
       success: true,
       downloadUrl: downloadUrl,
-      quality: downloadData.type
+      quality: downloadData.type,
+      filename: filename
     });
 
   } catch (error) {
@@ -222,13 +269,15 @@ app.post('/api/download', async (req, res) => {
 // Proxy download endpoint
 app.get('/api/proxy-download', async (req, res) => {
   try {
-    const { url } = req.query;
+    const { url, filename } = req.query;
 
     if (!url) {
       return res.status(400).json({ error: 'Download URL is required' });
     }
 
+    const finalFilename = filename || 'tiktok-video.mp4';
     console.log('Proxying download from:', url);
+    console.log('Using filename:', finalFilename);
 
     // Fetch the video from the external URL
     const response = await axios.get(url, {
@@ -241,7 +290,7 @@ app.get('/api/proxy-download', async (req, res) => {
 
     // Set headers to force download
     res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', 'attachment; filename="tiktok-video.mp4"');
+    res.setHeader('Content-Disposition', `attachment; filename="${finalFilename}"`);
 
     // Copy content-length if available
     if (response.headers['content-length']) {
