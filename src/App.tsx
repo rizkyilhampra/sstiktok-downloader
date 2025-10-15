@@ -161,35 +161,31 @@ function App() {
           <form onSubmit={handleDownloadVideo} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="url">Video URL</Label>
-              <Input
-                id="url"
-                type="text"
-                placeholder="https://www.tiktok.com/@username/video/..."
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                disabled={loading || isPasting}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="url"
+                  type="text"
+                  placeholder="https://www.tiktok.com/@username/video/..."
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  disabled={loading || isPasting}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  onClick={handlePasteAndDownload}
+                  disabled={loading || isPasting}
+                  variant="outline"
+                  size="icon"
+                >
+                  {isPasting || loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Clipboard className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
-
-            <Button
-              type="button"
-              onClick={handlePasteAndDownload}
-              disabled={loading || isPasting}
-              variant="outline"
-              className="w-full"
-            >
-              {isPasting || loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Clipboard className="mr-2 h-4 w-4" />
-                  Paste & Download
-                </>
-              )}
-            </Button>
 
             <Button
               type="submit"
