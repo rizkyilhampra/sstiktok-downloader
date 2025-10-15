@@ -12,7 +12,7 @@ function App() {
   const [result, setResult] = useState<DownloadResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleDownloadVideo = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!url.trim()) {
@@ -40,8 +40,17 @@ function App() {
 
       const data: DownloadResponse = await response.json()
 
-      if (data.success) {
+      if (data.success && data.downloadUrl) {
         setResult(data)
+
+        // Automatically trigger download
+        const a = document.createElement('a')
+        a.href = data.downloadUrl
+        a.download = 'tiktok-video.mp4'
+        a.target = '_blank'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
       } else {
         setError(data.message || data.error || 'Failed to process video')
       }
@@ -49,18 +58,6 @@ function App() {
       setError(err instanceof Error ? err.message : 'Network error occurred')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleDownload = () => {
-    if (result?.downloadUrl) {
-      const a = document.createElement('a')
-      a.href = result.downloadUrl
-      a.download = 'tiktok-video.mp4'
-      a.target = '_blank'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
     }
   }
 
@@ -75,7 +72,7 @@ function App() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleDownloadVideo} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="url">Video URL</Label>
               <Input
@@ -101,7 +98,7 @@ function App() {
               ) : (
                 <>
                   <Download className="mr-2 h-4 w-4" />
-                  Get Download Link
+                  Download Video
                 </>
               )}
             </Button>
@@ -115,19 +112,9 @@ function App() {
           )}
 
           {result?.success && (
-            <div className="space-y-3">
-              <div className="flex items-start gap-2 p-3 border rounded-lg">
-                <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5" />
-                <div className="text-sm">Video ready to download</div>
-              </div>
-
-              <Button
-                onClick={handleDownload}
-                className="w-full"
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Download Video
-              </Button>
+            <div className="flex items-start gap-2 p-3 border rounded-lg border-green-600 bg-green-600/10">
+              <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5" />
+              <div className="text-sm text-green-600">Download started! Check your downloads folder.</div>
             </div>
           )}
         </CardContent>
