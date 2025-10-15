@@ -240,8 +240,10 @@ app.post('/api/download', async (req, res) => {
       // Step 3: Get final download URL
       downloadUrl = await getFinalDownloadUrl(hxRedirectUrl, 'hd');
     } else {
+      throw new Error('No HD download available');
+
       // Standard quality: direct to final URL
-      downloadUrl = await getFinalDownloadUrl(downloadData.downloadLink, 'standard');
+      // downloadUrl = await getFinalDownloadUrl(downloadData.downloadLink, 'standard');
     }
 
     console.log('Final download URL obtained');
