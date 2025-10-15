@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Download, Loader2, CheckCircle2, AlertCircle, Clipboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +12,18 @@ function App() {
   const [isPasting, setIsPasting] = useState(false)
   const [result, setResult] = useState<DownloadResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Auto-hide success message and clear input after 3 seconds
+  useEffect(() => {
+    if (result?.success) {
+      const timer = setTimeout(() => {
+        setResult(null)
+        setUrl('')
+      }, 3000)
+
+      return () => clearTimeout(timer)
+    }
+  }, [result])
 
   const handleDownloadVideo = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,6 +80,13 @@ function App() {
     setResult(null)
 
     try {
+      // Check if Clipboard API is available
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        setError('Clipboard access not supported on this device. Please paste manually.')
+        setIsPasting(false)
+        return
+      }
+
       // Read from clipboard
       const text = await navigator.clipboard.readText()
 
