@@ -23,8 +23,8 @@ if (isProduction) {
   app.use(express.static(distPath));
 }
 
-// Step 1: Get video hash from ssstik.io
-async function getVideoHash(tiktokUrl) {
+// Step 1: Get HD download data from ssstik.io
+async function getHDDownloadData(tiktokUrl) {
   try {
     const formData = new URLSearchParams();
     formData.append('id', tiktokUrl);
@@ -55,33 +55,102 @@ async function getVideoHash(tiktokUrl) {
     const html = response.data;
     const $ = cheerio.load(html);
 
-    // Extract hash from the "Tanpa tanda air" (Without watermark) download link
-    const downloadLink = $('a.without_watermark').attr('href');
+    // Try to get HD download button data
+    const hdButton = $('#hd_download');
+    const dataDirectUrl = hdButton.attr('data-directurl');
 
-    if (!downloadLink) {
-      throw new Error('Could not find download link in response');
+    // Extract tt parameter from hidden input
+    const ttInput = $('input[name="tt"]');
+    const ttValue = ttInput.attr('value');
+
+    if (!dataDirectUrl || !ttValue) {
+      // Fallback to standard download if HD not available
+      const downloadLink = $('a.without_watermark').attr('href');
+
+      if (!downloadLink) {
+        throw new Error('Could not find any download link in response');
+      }
+
+      return {
+        type: 'standard',
+        downloadLink,
+        ttValue
+      };
     }
 
-    // Extract hash from the URL
-    const hashMatch = downloadLink.match(/\/ssstik\/([^?]+)/);
-    if (!hashMatch) {
-      throw new Error('Could not extract hash from download link');
-    }
-
-    return hashMatch[1];
+    return {
+      type: 'hd',
+      directUrl: dataDirectUrl,
+      ttValue
+    };
   } catch (error) {
-    console.error('Error getting video hash:', error.message);
+    console.error('Error getting download data:', error.message);
     throw error;
   }
 }
 
-// Step 2: Get video download URL from tikcdn.io
-async function getVideoDownloadUrl(hash) {
+// Step 2: Get hx-redirect URL from second POST request (HD only)
+async function getHxRedirectUrl(directUrl, ttValue) {
   try {
-    const downloadUrl = `https://tikcdn.io/ssstik/${hash}`;
+    const formData = new URLSearchParams();
+    formData.append('tt', ttValue);
 
-    // Make a HEAD request to get the final URL after redirects
-    const response = await axios.head(downloadUrl, {
+    const fullUrl = `https://ssstik.io${directUrl}`;
+
+    const response = await axios.post(fullUrl, formData.toString(), {
+      headers: {
+        'accept': '*/*',
+        'accept-language': 'en-US,en;q=0.9',
+        'content-type': 'application/x-www-form-urlencoded',
+        'hx-current-url': 'https://ssstik.io/en',
+        'hx-request': 'true',
+        'hx-target': 'hd_download',
+        'hx-trigger': 'hd_download',
+        'origin': 'https://ssstik.io',
+        'referer': 'https://ssstik.io/en',
+        'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Linux"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
+      },
+      maxRedirects: 0,
+      validateStatus: (status) => status >= 200 && status < 400
+    });
+
+    const hxRedirect = response.headers['hx-redirect'];
+
+    if (!hxRedirect) {
+      throw new Error('Could not find hx-redirect header in response');
+    }
+
+    return hxRedirect;
+  } catch (error) {
+    console.error('Error getting hx-redirect URL:', error.message);
+    throw error;
+  }
+}
+
+// Step 3: Get final video download URL
+async function getFinalDownloadUrl(urlOrHash, type = 'hd') {
+  try {
+    let targetUrl;
+
+    if (type === 'standard') {
+      // Extract hash from standard download link
+      const hashMatch = urlOrHash.match(/\/ssstik\/([^?]+)/);
+      if (!hashMatch) {
+        throw new Error('Could not extract hash from download link');
+      }
+      targetUrl = `https://tikcdn.io/ssstik/${hashMatch[1]}`;
+    } else {
+      // HD: Use the hx-redirect URL directly
+      targetUrl = urlOrHash;
+    }
+
+    const response = await axios.get(targetUrl, {
       maxRedirects: 5,
       headers: {
         'Referer': 'https://ssstik.io/',
@@ -92,9 +161,9 @@ async function getVideoDownloadUrl(hash) {
       }
     });
 
-    return response.request.res.responseUrl || downloadUrl;
+    return response.request.res.responseUrl || targetUrl;
   } catch (error) {
-    console.error('Error getting video download URL:', error.message);
+    console.error('Error getting final download URL:', error.message);
     throw error;
   }
 }
@@ -115,18 +184,30 @@ app.post('/api/download', async (req, res) => {
 
     console.log('Processing TikTok URL:', url);
 
-    // Step 1: Get video hash
-    const hash = await getVideoHash(url);
-    console.log('Extracted hash:', hash);
+    // Step 1: Get download data (HD or standard)
+    const downloadData = await getHDDownloadData(url);
+    console.log(`Download type: ${downloadData.type}`);
 
-    // Step 2: Get download URL
-    const downloadUrl = await getVideoDownloadUrl(hash);
-    console.log('Download URL:', downloadUrl);
+    let downloadUrl;
+
+    if (downloadData.type === 'hd') {
+      // Step 2: Get hx-redirect URL for HD
+      const hxRedirectUrl = await getHxRedirectUrl(downloadData.directUrl, downloadData.ttValue);
+      console.log('Got hx-redirect URL');
+
+      // Step 3: Get final download URL
+      downloadUrl = await getFinalDownloadUrl(hxRedirectUrl, 'hd');
+    } else {
+      // Standard quality: direct to final URL
+      downloadUrl = await getFinalDownloadUrl(downloadData.downloadLink, 'standard');
+    }
+
+    console.log('Final download URL obtained');
 
     res.json({
       success: true,
       downloadUrl: downloadUrl,
-      hash: hash
+      quality: downloadData.type
     });
 
   } catch (error) {

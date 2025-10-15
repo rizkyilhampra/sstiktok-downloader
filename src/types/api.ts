@@ -5,7 +5,7 @@ export interface DownloadRequest {
 export interface DownloadResponse {
   success: boolean;
   downloadUrl?: string;
-  hash?: string;
+  quality?: 'hd' | 'standard';
   error?: string;
   message?: string;
 }
