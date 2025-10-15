@@ -219,6 +219,46 @@ app.post('/api/download', async (req, res) => {
   }
 });
 
+// Proxy download endpoint
+app.get('/api/proxy-download', async (req, res) => {
+  try {
+    const { url } = req.query;
+
+    if (!url) {
+      return res.status(400).json({ error: 'Download URL is required' });
+    }
+
+    console.log('Proxying download from:', url);
+
+    // Fetch the video from the external URL
+    const response = await axios.get(url, {
+      responseType: 'stream',
+      headers: {
+        'Referer': 'https://ssstik.io/',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
+      }
+    });
+
+    // Set headers to force download
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', 'attachment; filename="tiktok-video.mp4"');
+
+    // Copy content-length if available
+    if (response.headers['content-length']) {
+      res.setHeader('Content-Length', response.headers['content-length']);
+    }
+
+    // Pipe the video stream to the response
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('Error proxying download:', error.message);
+    res.status(500).json({
+      error: 'Failed to download video',
+      message: error.message
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
