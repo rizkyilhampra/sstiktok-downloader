@@ -53,8 +53,8 @@ function createFilename(author, description) {
     .substring(0, 17)
     .replace(/:/g, '');
 
-  // Combine: author-description-timestamp.mp4
-  return `${sanitizedAuthor}-${sanitizedDesc}-${timestamp}.mp4`;
+  // Combine: author-timestamp.mp4
+  return `${sanitizedAuthor}-${timestamp}.mp4`;
 }
 
 // Step 1: Get HD download data from ssstik.io
