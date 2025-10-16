@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Download, Loader2, CheckCircle2, AlertCircle, Clipboard } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Loader2, CheckCircle2, AlertCircle, Clipboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,8 +12,9 @@ function App() {
   const [isPasting, setIsPasting] = useState(false)
   const [result, setResult] = useState<DownloadResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Auto-hide success message and clear input after 3 seconds
+  // Auto-hide success message and clear input after 5 seconds
   useEffect(() => {
     if (result?.success) {
       const timer = setTimeout(() => {
@@ -25,15 +26,22 @@ function App() {
     }
   }, [result])
 
-  const handleDownloadVideo = async (e: React.FormEvent) => {
-    e.preventDefault()
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
+  }, [])
 
-    if (!url.trim()) {
+  const processDownload = async (videoUrl: string) => {
+    if (!videoUrl.trim()) {
       setError('Please enter a TikTok URL')
       return
     }
 
-    if (!url.includes('tiktok.com')) {
+    if (!videoUrl.includes('tiktok.com')) {
       setError('Please enter a valid TikTok URL')
       return
     }
@@ -48,7 +56,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: videoUrl }),
       })
 
       const data: DownloadResponse = await response.json()
@@ -75,6 +83,22 @@ function App() {
     }
   }
 
+  const handleInputChange = (value: string) => {
+    setUrl(value)
+
+    // Clear existing debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+    }
+
+    // Set new debounce timer (1.5 seconds delay)
+    debounceTimerRef.current = setTimeout(() => {
+      if (value.trim()) {
+        processDownload(value)
+      }
+    }, 1500)
+  }
+
   const handlePasteAndDownload = async () => {
     setIsPasting(true)
     setError(null)
@@ -97,9 +121,6 @@ function App() {
         return
       }
 
-      // Set the URL in the input
-      setUrl(text.trim())
-
       // Validate URL
       if (!text.includes('tiktok.com')) {
         setError('Please copy a valid TikTok URL to clipboard')
@@ -107,36 +128,9 @@ function App() {
         return
       }
 
-      // Start loading for download process
-      setLoading(true)
+      // Trigger input change which will handle the download with debounce
+      handleInputChange(text.trim())
       setIsPasting(false)
-
-      // Process and download
-      const response = await fetch('/api/download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: text.trim() }),
-      })
-
-      const data: DownloadResponse = await response.json()
-
-      if (data.success && data.downloadUrl) {
-        setResult(data)
-
-        // Automatically trigger download through proxy with dynamic filename
-        const filename = data.filename || 'tiktok-video.mp4'
-        const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(data.downloadUrl)}&filename=${encodeURIComponent(filename)}`
-        const a = document.createElement('a')
-        a.href = proxyUrl
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-      } else {
-        setError(data.message || data.error || 'Failed to process video')
-      }
     } catch (err) {
       if (err instanceof Error && err.name === 'NotAllowedError') {
         setError('Clipboard access denied. Please grant permission or paste manually.')
@@ -144,8 +138,6 @@ function App() {
         setError(err instanceof Error ? err.message : 'Failed to paste from clipboard')
       }
       setIsPasting(false)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -160,7 +152,13 @@ function App() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <form onSubmit={handleDownloadVideo} className="space-y-4">
+          <div className="p-3 bg-muted/50 border border-border rounded-lg">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-semibold text-foreground">Auto-Download:</span> Paste or type a TikTok URL below. It will automatically process and download after 1-2 seconds.
+            </p>
+          </div>
+
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="url">Video URL</Label>
               <div className="flex gap-2">
@@ -169,7 +167,7 @@ function App() {
                   type="text"
                   placeholder="https://www.tiktok.com/@username/video/..."
                   value={url}
-                  onChange={(e) => setUrl(e.target.value)}
+                  onChange={(e) => handleInputChange(e.target.value)}
                   disabled={loading || isPasting}
                   className="flex-1"
                 />
@@ -179,6 +177,7 @@ function App() {
                   disabled={loading || isPasting}
                   variant="outline"
                   size="icon"
+                  title="Paste from clipboard and auto-download"
                 >
                   {isPasting ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -187,26 +186,14 @@ function App() {
                   )}
                 </Button>
               </div>
-            </div>
-
-            <Button
-              type="submit"
-              disabled={loading || isPasting}
-              className="w-full"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {loading && (
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Processing...
-                </>
-              ) : (
-                <>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download Video
-                </>
+                </div>
               )}
-            </Button>
-          </form>
+            </div>
+          </div>
 
           {error && (
             <div className="flex items-start gap-2 p-3 border rounded-lg border-destructive bg-destructive/10">
