@@ -14,13 +14,24 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Auto-hide success message and clear input after 5 seconds
+  //auto hide error message after 30 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null)
+      }, 30_000)
+
+      return () => clearTimeout(timer)
+    }
+  }, [error])
+
+  // Auto-hide success message and clear input after 10 seconds
   useEffect(() => {
     if (result?.success) {
       const timer = setTimeout(() => {
         setResult(null)
         setUrl('')
-      }, 5000)
+      }, 10_000)
 
       return () => clearTimeout(timer)
     }
@@ -144,68 +155,77 @@ function App() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>TikTok Downloader</CardTitle>
-          <CardDescription>
-            Download TikTok videos without watermark
+        <CardHeader className="space-y-3">
+          <CardTitle className="text-2xl">TikTok Downloader</CardTitle>
+          <CardDescription className="text-base">
+            Download HD TikTok videos without watermarks—no need to watch ads. Simply paste a URL and your video downloads automatically.
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="space-y-4">
-          <div className="p-3 bg-muted/50 border border-border rounded-lg">
-            <p className="text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">Auto-Download:</span> Paste or type a TikTok URL below. It will automatically process and download after 1-2 seconds.
-            </p>
-          </div>
+        <CardContent className="space-y-5">
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="url">Video URL</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="url"
-                  type="text"
-                  placeholder="https://www.tiktok.com/@username/video/..."
-                  value={url}
-                  onChange={(e) => handleInputChange(e.target.value)}
-                  disabled={loading || isPasting}
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  onClick={handlePasteAndDownload}
-                  disabled={loading || isPasting}
-                  variant="outline"
-                  size="icon"
-                  title="Paste from clipboard and auto-download"
-                >
-                  {isPasting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Clipboard className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-              {loading && (
-                <div className="flex items-center gap-2 text-sm text-slate-600">
+          {/* Input Section */}
+          <div className="space-y-3">
+            <Label htmlFor="url" className="sr-only">
+              Video URL
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="url"
+                type="text"
+                placeholder="https://www.tiktok.com/@username/video/..."
+                value={url}
+                onChange={(e) => handleInputChange(e.target.value)}
+                disabled={loading || isPasting}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                onClick={handlePasteAndDownload}
+                disabled={loading || isPasting}
+                variant="outline"
+                size="icon"
+                title="Paste from clipboard and auto-download"
+              >
+                {isPasting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Processing...
-                </div>
-              )}
+                ) : (
+                  <Clipboard className="h-4 w-4" />
+                )}
+              </Button>
             </div>
           </div>
 
-          {error && (
-            <div className="flex items-start gap-2 p-3 border rounded-lg border-destructive bg-destructive/10">
-              <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
-              <div className="text-sm text-destructive">{error}</div>
+          {/* Loading State */}
+          {loading && (
+            <div className="flex items-center gap-3 p-4 bg-primary/10 border border-primary/20 rounded-lg">
+              <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-foreground">Processing video...</p>
+                <p className="text-xs text-muted-foreground">This may take a few seconds</p>
+              </div>
             </div>
           )}
 
+          {/* Error State */}
+          {error && (
+            <div className="flex items-start gap-3 p-4 border rounded-lg border-destructive bg-destructive/10">
+              <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-destructive">Error</p>
+                <p className="text-sm text-destructive/90">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Success State */}
           {result?.success && (
-            <div className="flex items-start gap-2 p-3 border rounded-lg border-green-600 bg-green-600/10">
-              <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5" />
-              <div className="text-sm text-green-600">Download started! Check your downloads folder.</div>
+            <div className="flex items-start gap-3 p-4 border rounded-lg border-primary/50 bg-primary/10">
+              <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-foreground">Download Started!</p>
+                <p className="text-sm text-muted-foreground">Check your downloads folder</p>
+              </div>
             </div>
           )}
         </CardContent>
