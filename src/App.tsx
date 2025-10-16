@@ -19,7 +19,7 @@ function App() {
       const timer = setTimeout(() => {
         setResult(null)
         setUrl('')
-      }, 3000)
+      }, 5000)
 
       return () => clearTimeout(timer)
     }
@@ -180,7 +180,7 @@ function App() {
                   variant="outline"
                   size="icon"
                 >
-                  {isPasting || loading ? (
+                  {isPasting ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Clipboard className="h-4 w-4" />
