@@ -1,57 +1,144 @@
 # TikTok Video Downloader
 
-A web application to download TikTok videos without watermark using ssstik.io automation.
+A modern, full-stack web application to download TikTok videos without watermark. Built with React 19, TypeScript, Vite, Tailwind CSS 4, and shadcn/ui.
 
 ## Features
 
-- Clean and modern web interface
-- Download TikTok videos without watermark
-- No registration or API key required
-- Direct video download links
-- Works with any public TikTok video
+- **Modern UI**: Beautiful gradient design with shadcn/ui components
+- **Fast**: Lightning-fast development with Vite and HMR
+- **Type-Safe**: Full TypeScript implementation
+- **Responsive**: Works seamlessly on all devices
+- **No Watermark**: Download TikTok videos without watermark
+- **Free**: No registration or API key required
+- **Direct Download**: Get direct video download links instantly
+
+## Tech Stack
+
+### Frontend
+- **React 19** - Latest React with new features (Actions API)
+- **TypeScript** - Full type safety
+- **Vite 6** - Next-generation build tool
+- **Tailwind CSS 4** - Modern utility-first CSS with Vite plugin
+- **shadcn/ui** - Beautiful, accessible UI components
+- **Lucide React** - Modern icon library
+
+### Backend
+- **Node.js** - JavaScript runtime
+- **Express** - Web framework
+- **Axios** - HTTP client
+- **Cheerio** - HTML parser for scraping
+
+## Prerequisites
+
+- Node.js 18+
+- npm or yarn
 
 ## Installation
 
-1. Install dependencies:
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd sstiktok-downloader
+```
+
+2. Install dependencies:
 ```bash
 npm install
 ```
 
-## Usage
+## Development
 
-1. Start the server:
+### Run Development Mode
+
+You'll need two terminal windows:
+
+**Terminal 1 - Frontend (Vite dev server):**
 ```bash
-npm start
+npm run dev
+```
+This starts the Vite dev server at http://localhost:5173
+
+**Terminal 2 - Backend (Express API):**
+```bash
+npm run server
+```
+This starts the Express server at http://localhost:3000
+
+The Vite dev server will proxy API requests to the Express backend automatically.
+
+### Available Scripts
+
+- `npm run dev` - Start Vite development server (frontend)
+- `npm run server` - Start Express API server (backend)
+- `npm run build` - Build for production
+- `npm run preview` - Preview production build locally
+- `npm start` - Build and start production server
+
+## Production
+
+1. Build the application:
+```bash
+npm run build
 ```
 
-2. Open your browser and navigate to:
-```
-http://localhost:3000
+2. Start the production server:
+```bash
+NODE_ENV=production npm run server
 ```
 
-3. Paste a TikTok video URL and click "Get Download Link"
+The server will serve the built React app and API from port 3000.
 
-4. Click "Download Video" to save the video to your device
+## Project Structure
+
+```
+sstiktok-downloader/
+├── src/                      # Frontend source
+│   ├── components/
+│   │   └── ui/              # shadcn/ui components
+│   ├── lib/                 # Utilities
+│   ├── types/               # TypeScript types
+│   ├── App.tsx              # Main React component
+│   ├── main.tsx             # React entry point
+│   └── index.css            # Tailwind CSS imports
+├── server/                   # Backend source
+│   └── index.js             # Express server
+├── public/                   # Static assets
+├── dist/                     # Production build (generated)
+├── index.html               # HTML template
+├── vite.config.ts           # Vite configuration
+├── tsconfig.json            # TypeScript configuration
+├── components.json          # shadcn/ui configuration
+└── package.json             # Dependencies
+```
 
 ## API Endpoint
 
-You can also use the API directly:
-
 ### POST `/api/download`
 
-Request body:
+Download a TikTok video without watermark.
+
+**Request:**
 ```json
 {
   "url": "https://www.tiktok.com/@username/video/1234567890"
 }
 ```
 
-Response:
+**Response (Success):**
 ```json
 {
   "success": true,
   "downloadUrl": "https://tikcdn.io/ssstik/...",
-  "hash": "..."
+  "hash": "abc123..."
+}
+```
+
+**Response (Error):**
+```json
+{
+  "success": false,
+  "error": "Failed to process TikTok video",
+  "message": "Error details..."
 }
 ```
 
@@ -65,35 +152,33 @@ curl -X POST http://localhost:3000/api/download \
 
 ## How It Works
 
-1. **Step 1**: Send TikTok URL to ssstik.io to get video hash
-   - POST request to `https://ssstik.io/abc?url=dl`
-   - Parse HTML response to extract download link hash
+1. **Step 1**: User submits TikTok URL through React frontend
+2. **Step 2**: Frontend sends POST request to `/api/download`
+3. **Step 3**: Backend sends TikTok URL to ssstik.io
+4. **Step 4**: Parse HTML response to extract download hash
+5. **Step 5**: Use hash to get final download URL from tikcdn.io
+6. **Step 6**: Return download URL to frontend
+7. **Step 7**: User clicks download button to save video
 
-2. **Step 2**: Use the hash to get the direct download URL
-   - GET request to `https://tikcdn.io/ssstik/{hash}`
-   - Follow redirects to get final video URL
+## Configuration
 
-## Project Structure
+### Vite Configuration (`vite.config.ts`)
 
-```
-sstiktok-downloader/
-├── server.js           # Express server with API endpoints
-├── public/
-│   └── index.html     # Frontend web interface
-├── package.json       # Project dependencies
-└── README.md          # Documentation
-```
+- React plugin for Fast Refresh
+- Tailwind CSS 4 Vite plugin
+- Path aliases (`@/` → `./src/`)
+- Proxy configuration for API requests in development
 
-## Technologies Used
+### Environment Variables
 
-- **Backend**: Node.js, Express
-- **HTTP Client**: Axios
-- **HTML Parser**: Cheerio
-- **Frontend**: Vanilla HTML, CSS, JavaScript
+- `PORT` - Server port (default: 3000)
+- `NODE_ENV` - Environment mode (development/production)
 
-## Environment
+## Browser Support
 
-- Default port: 3000 (configurable via PORT environment variable)
+- Chrome/Edge (latest)
+- Firefox (latest)
+- Safari (latest)
 
 ## Notes
 
@@ -104,12 +189,43 @@ sstiktok-downloader/
 
 ## Troubleshooting
 
-If you encounter issues:
+### Development Issues
 
-1. **Server won't start**: Check if port 3000 is already in use
-2. **Cannot download video**: Verify the TikTok URL is valid and public
-3. **Hash extraction fails**: ssstik.io may have updated their HTML structure
+1. **Port already in use**:
+   - Change port in `vite.config.ts` (frontend) or use `PORT=3001 npm run server` (backend)
+
+2. **API requests failing**:
+   - Make sure Express server is running on port 3000
+   - Check Vite proxy configuration in `vite.config.ts`
+
+3. **TypeScript errors**:
+   - Run `npm install` to ensure all type definitions are installed
+   - Check `tsconfig.json` for proper configuration
+
+4. **Tailwind styles not working**:
+   - Verify `@import "tailwindcss";` is in `src/index.css`
+   - Check that `@tailwindcss/vite` plugin is in `vite.config.ts`
+
+### Production Issues
+
+1. **Server won't start**:
+   - Run `npm run build` first
+   - Check if port 3000 is available
+
+2. **Cannot download video**:
+   - Verify the TikTok URL is valid and public
+   - Check if ssstik.io service is operational
+
+3. **Hash extraction fails**:
+   - ssstik.io may have updated their HTML structure
+   - Check backend logs for detailed error messages
 
 ## License
 
 MIT
+
+## Credits
+
+- Built with modern web technologies (October 2025)
+- Powered by ssstik.io for video processing
+- UI components from shadcn/ui

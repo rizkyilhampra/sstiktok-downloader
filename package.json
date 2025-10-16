@@ -1,19 +1,48 @@
 {
   "name": "sstiktok-downloader",
   "version": "1.0.0",
-  "description": "TikTok video downloader using sstiktok.io",
-  "main": "server.js",
+  "type": "module",
+  "description": "TikTok video downloader using sstiktok.io - React 19 + TypeScript + Vite + Tailwind 4",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "start": "npm run build && npm run server"
   },
-  "keywords": ["tiktok", "downloader", "video"],
+  "keywords": [
+    "tiktok",
+    "downloader",
+    "video",
+    "react",
+    "typescript",
+    "vite",
+    "tailwind"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-slot": "^1.2.3",
     "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12",
-    "cors": "^2.8.5"
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3"
   }
 }
