@@ -33,3 +33,5 @@ dist-ssr
 
 # TypeScript build info
 *.tsbuildinfo
+
+docker-compose.cloudflare.yml
