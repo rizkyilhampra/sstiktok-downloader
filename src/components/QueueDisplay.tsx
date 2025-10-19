@@ -30,7 +30,10 @@ export function QueueDisplay({
   const getStatusLabel = (status: QueueItem['status'], retryAttempt?: number | null) => {
     switch (status) {
       case 'processing':
-        return retryAttempt ? `Retrying (${retryAttempt}/3)` : 'Processing...'
+        if (retryAttempt && retryAttempt > 1) {
+          return `Processing (Attempt ${retryAttempt}/10)`
+        }
+        return 'Processing...'
       case 'completed':
         return 'Downloading to browser'
       case 'failed':
@@ -40,6 +43,19 @@ export function QueueDisplay({
       default:
         return status
     }
+  }
+
+  const getBackoffDelay = (attemptNumber: number): number => {
+    if (attemptNumber === 1) return 0
+    const delay = 1000 * Math.pow(2, attemptNumber - 2)
+    return Math.min(delay, 60000) // Cap at 60 seconds
+  }
+
+  const getEstimatedWaitTime = (attemptNumber?: number | null): string => {
+    if (!attemptNumber || attemptNumber < 2) return ''
+    const nextDelay = getBackoffDelay(attemptNumber)
+    const seconds = Math.ceil(nextDelay / 1000)
+    return ` (waiting ${seconds}s before next retry)`
   }
 
   return (
@@ -81,6 +97,7 @@ export function QueueDisplay({
             }`}
             role="article"
             aria-label={`Item ${index + 1}: ${getStatusLabel(item.status, item.retryAttempt)}`}
+            title={item.status === 'processing' && item.retryAttempt && item.retryAttempt > 1 ? `Currently on attempt ${item.retryAttempt}/10. Using exponential backoff retry strategy.` : undefined}
           >
             <div className="flex items-start gap-3">
               {/* Status Icon */}
@@ -107,6 +124,7 @@ export function QueueDisplay({
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {getStatusLabel(item.status, item.retryAttempt)}
+                    {item.status === 'processing' && getEstimatedWaitTime(item.retryAttempt)}
                   </div>
                 </div>
 

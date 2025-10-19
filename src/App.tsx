@@ -48,6 +48,11 @@ function App() {
 
   // Process a single queue item
   const processQueueItem = useCallback(async (item: QueueItem) => {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+    }, 5 * 60 * 1000) // 5 minute timeout
+
     try {
       const response = await fetch('/api/download', {
         method: 'POST',
@@ -55,6 +60,7 @@ function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ url: item.url }),
+        signal: controller.signal,
       })
 
       const data: DownloadResponse = await response.json()
@@ -92,7 +98,16 @@ function App() {
         document.body.removeChild(a)
       }
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Network error occurred'
+      let errorMsg = 'Network error occurred'
+
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorMsg = 'Request timeout - took too long to process (over 5 minutes)'
+        } else {
+          errorMsg = err.message
+        }
+      }
+
       setQueue(prev => ({
         ...prev,
         items: prev.items.map(i =>
@@ -106,6 +121,9 @@ function App() {
             : i
         ),
       }))
+    } finally {
+      clearTimeout(timeoutId)
+      controller.abort()
     }
   }, [])
 

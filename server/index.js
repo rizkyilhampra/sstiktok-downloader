@@ -23,17 +23,30 @@ if (isProduction) {
   app.use(express.static(distPath));
 }
 
+// Helper function to calculate exponential backoff delay
+function calculateBackoffDelay(attempt, baseDelay = 1000, maxDelay = 60000) {
+  if (attempt === 1) return 0; // First attempt is immediate
+  // Exponential: 2^(attempt-2) * baseDelay
+  // Attempt 2: 2^0 * 1000 = 1000ms
+  // Attempt 3: 2^1 * 1000 = 2000ms
+  // Attempt 4: 2^2 * 1000 = 4000ms, etc.
+  const delay = baseDelay * Math.pow(2, attempt - 2);
+  return Math.min(delay, maxDelay);
+}
+
 // Helper function for retry mechanism with exponential backoff
-async function retryWithBackoff(operation, maxAttempts = 3, onAttempt = null) {
+async function retryWithBackoff(operation, maxAttempts = 10, onAttempt = null) {
   let lastError;
-  const delays = [0, 1000, 2000]; // 0s, 1s, 2s delays before attempts
+  const baseDelay = 1000; // 1 second base delay
+  const maxDelay = 60000; // 60 second max delay cap
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      // Delay before attempt (skip for first attempt)
+      // Calculate and apply delay before attempt (skip for first attempt)
       if (attempt > 1) {
-        const delay = delays[attempt - 1];
-        console.log(`Retry attempt ${attempt}/${maxAttempts} - waiting ${delay}ms...`);
+        const delay = calculateBackoffDelay(attempt, baseDelay, maxDelay);
+        const delaySeconds = (delay / 1000).toFixed(1);
+        console.log(`Retry attempt ${attempt}/${maxAttempts} - waiting ${delaySeconds}s (${delay}ms)...`);
         if (onAttempt) {
           onAttempt(attempt, maxAttempts);
         }
@@ -383,7 +396,9 @@ app.post('/api/download', async (req, res) => {
       error: errorInfo.message,
       errorType: errorInfo.errorType,
       suggestion: errorInfo.suggestion,
-      details: 'All 3 retry attempts failed. Please try again later.'
+      details: 'All 10 retry attempts failed. Please try again later.',
+      retryAttempt: 10,
+      isRetrying: true
     });
   }
 });

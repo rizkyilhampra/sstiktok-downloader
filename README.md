@@ -40,7 +40,8 @@ This project **programmatically wraps ssstik.io** to automate HD link extraction
 * ❤️ **Health checks** – `/api/health` endpoint + Docker healthcheck
 * 📥 **Download queue system** – Add multiple URLs, processed sequentially
 * 🎬 **Video metadata display** – Shows author and video description
-* 🔄 **Retry mechanism** – Exponential backoff with 3 retry attempts
+* 🔄 **Retry mechanism** – Exponential backoff with up to 10 retry attempts
+* ⏱️ **Request timeout** – 5-minute client-side timeout for hung requests
 * ✅ **URL validation** – Client-side format validation with real-time feedback
 
 ## 🧠 How It Works
@@ -147,7 +148,8 @@ Builds the frontend and serves app + API on port 3000.
 
 * **Metadata display** – Each queue item shows video author and description
 * **Error suggestions** – Failed downloads show actionable error messages
-* **Retry attempts** – Automatic 3 retries with exponential backoff
+* **Retry attempts** – Automatic retries (up to 10) with exponential backoff
+* **Request timeout** – 5-minute timeout prevents hung requests
 * **Real-time validation** – URL format checked before queue addition
 
 **Supported URL formats:**
@@ -198,7 +200,9 @@ https://vt.tiktok.com/XXXXXXXXXX
   "error": "Unable to extract video data",
   "errorType": "PARSE_ERROR",
   "suggestion": "This may be a temporary issue. Try again in a moment.",
-  "details": "All 3 retry attempts failed. Please try again later."
+  "details": "All 10 retry attempts failed. Please try again later.",
+  "retryAttempt": 10,
+  "isRetrying": true
 }
 ```
 
