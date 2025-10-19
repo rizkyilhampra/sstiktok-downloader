@@ -12,6 +12,7 @@ function App() {
   const [isPasting, setIsPasting] = useState(false)
   const [result, setResult] = useState<DownloadResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [retryAttempt, setRetryAttempt] = useState<number | null>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   //auto hide error message after 30 seconds
@@ -60,6 +61,7 @@ function App() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setRetryAttempt(null)
 
     try {
       const response = await fetch('/api/download', {
@@ -71,6 +73,11 @@ function App() {
       })
 
       const data: DownloadResponse = await response.json()
+
+      // Track retry attempt if present
+      if (data.retryAttempt) {
+        setRetryAttempt(data.retryAttempt)
+      }
 
       if (data.success && data.downloadUrl) {
         setResult(data)
@@ -85,12 +92,15 @@ function App() {
         a.click()
         document.body.removeChild(a)
       } else {
-        setError(data.message || data.error || 'Failed to process video')
+        const errorMsg = data.message || data.error || 'Failed to process video'
+        const details = data.details ? ` ${data.details}` : ''
+        setError(`${errorMsg}${details}`)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Network error occurred')
     } finally {
       setLoading(false)
+      setRetryAttempt(null)
     }
   }
 
@@ -201,8 +211,12 @@ function App() {
             <div className="flex items-center gap-3 p-4 bg-primary/10 border border-primary/20 rounded-lg">
               <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
               <div className="space-y-0.5">
-                <p className="text-sm font-medium text-foreground">Processing video...</p>
-                <p className="text-xs text-muted-foreground">This may take a few seconds</p>
+                <p className="text-sm font-medium text-foreground">
+                  {retryAttempt ? `Retrying... (attempt ${retryAttempt}/3)` : 'Processing video...'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {retryAttempt ? 'Retrying the download after a brief delay' : 'This may take a few seconds'}
+                </p>
               </div>
             </div>
           )}

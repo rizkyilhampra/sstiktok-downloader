@@ -23,6 +23,48 @@ if (isProduction) {
   app.use(express.static(distPath));
 }
 
+// Helper function for retry mechanism with exponential backoff
+async function retryWithBackoff(operation, maxAttempts = 3, onAttempt = null) {
+  let lastError;
+  const delays = [0, 1000, 2000]; // 0s, 1s, 2s delays before attempts
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // Delay before attempt (skip for first attempt)
+      if (attempt > 1) {
+        const delay = delays[attempt - 1];
+        console.log(`Retry attempt ${attempt}/${maxAttempts} - waiting ${delay}ms...`);
+        if (onAttempt) {
+          onAttempt(attempt, maxAttempts);
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.log(`Starting download attempt 1/${maxAttempts}...`);
+        if (onAttempt) {
+          onAttempt(1, maxAttempts);
+        }
+      }
+
+      // Execute the operation
+      const result = await operation();
+      if (attempt > 1) {
+        console.log(`✓ Success on attempt ${attempt}/${maxAttempts}`);
+      }
+      return { result, attempt, retried: attempt > 1 };
+    } catch (error) {
+      lastError = error;
+      console.error(`✗ Attempt ${attempt}/${maxAttempts} failed:`, error.message);
+
+      // If this was the last attempt, throw
+      if (attempt === maxAttempts) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 // Helper function to sanitize and create filename
 function createFilename(author, description) {
   // Sanitize function: remove special chars, convert to lowercase, replace spaces with hyphens
@@ -226,44 +268,56 @@ app.post('/api/download', async (req, res) => {
 
     console.log('Processing TikTok URL:', url);
 
-    // Step 1: Get download data (HD or standard)
-    const downloadData = await getHDDownloadData(url);
-    console.log(`Download type: ${downloadData.type}`);
+    // Wrap entire download pipeline with retry logic
+    const { result, attempt, retried } = await retryWithBackoff(async () => {
+      // Step 1: Get download data (HD or standard)
+      const downloadData = await getHDDownloadData(url);
+      console.log(`Download type: ${downloadData.type}`);
 
-    let downloadUrl;
+      let downloadUrl;
 
-    if (downloadData.type === 'hd') {
-      // Step 2: Get hx-redirect URL for HD
-      const hxRedirectUrl = await getHxRedirectUrl(downloadData.directUrl, downloadData.ttValue);
-      console.log('Got hx-redirect URL');
+      if (downloadData.type === 'hd') {
+        // Step 2: Get hx-redirect URL for HD
+        const hxRedirectUrl = await getHxRedirectUrl(downloadData.directUrl, downloadData.ttValue);
+        console.log('Got hx-redirect URL');
 
-      // Step 3: Get final download URL
-      downloadUrl = await getFinalDownloadUrl(hxRedirectUrl, 'hd');
-    } else {
-      throw new Error('No HD download available');
+        // Step 3: Get final download URL
+        downloadUrl = await getFinalDownloadUrl(hxRedirectUrl, 'hd');
+      } else {
+        throw new Error('No HD download available');
 
-      // Standard quality: direct to final URL
-      // downloadUrl = await getFinalDownloadUrl(downloadData.downloadLink, 'standard');
-    }
+        // Standard quality: direct to final URL
+        // downloadUrl = await getFinalDownloadUrl(downloadData.downloadLink, 'standard');
+      }
 
-    console.log('Final download URL obtained');
+      console.log('Final download URL obtained');
 
-    // Generate filename from author and description
-    const filename = createFilename(downloadData.author, downloadData.description);
-    console.log('Generated filename:', filename);
+      // Generate filename from author and description
+      const filename = createFilename(downloadData.author, downloadData.description);
+      console.log('Generated filename:', filename);
+
+      return {
+        downloadUrl,
+        quality: downloadData.type,
+        filename
+      };
+    });
 
     res.json({
       success: true,
-      downloadUrl: downloadUrl,
-      quality: downloadData.type,
-      filename: filename
+      downloadUrl: result.downloadUrl,
+      quality: result.quality,
+      filename: result.filename,
+      retryAttempt: attempt,
+      isRetrying: retried
     });
 
   } catch (error) {
     console.error('Error:', error.message);
     res.status(500).json({
       error: 'Failed to process TikTok video',
-      message: error.message
+      message: error.message,
+      details: 'All 3 retry attempts failed. Please try again later.'
     });
   }
 });

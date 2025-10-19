@@ -9,6 +9,9 @@ export interface DownloadResponse {
   filename?: string;
   error?: string;
   message?: string;
+  details?: string;
+  retryAttempt?: number;
+  isRetrying?: boolean;
 }
 
 export interface HealthResponse {
