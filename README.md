@@ -35,9 +35,13 @@ This project **programmatically wraps ssstik.io** to automate HD link extraction
 * 📋 **Clipboard integration**
 * 🧩 **Smart filenames** – `author-timestamp.mp4`
 * 🧭 **Responsive UI** – Mobile + desktop
-* 💡 **Helpful errors** – Clear messages
+* 💡 **Helpful errors** – Clear, categorized error messages with suggestions
 * 🐳 **Docker ready** – Simple deployment
 * ❤️ **Health checks** – `/api/health` endpoint + Docker healthcheck
+* 📥 **Download queue system** – Add multiple URLs, processed sequentially
+* 🎬 **Video metadata display** – Shows author and video description
+* 🔄 **Retry mechanism** – Exponential backoff with 3 retry attempts
+* ✅ **URL validation** – Client-side format validation with real-time feedback
 
 ## 🧠 How It Works
 
@@ -123,10 +127,28 @@ Builds the frontend and serves app + API on port 3000.
 
 ## 🧩 Usage
 
+### Basic Download
+
 1. Open the app in your browser
-2. Paste a TikTok URL
-3. Click **Download**
-4. The backend proxies the HD stream to your browser
+2. Paste a TikTok URL into the input field
+3. The URL is automatically added to the queue
+4. Videos are downloaded sequentially
+5. The backend proxies the HD stream to your browser
+
+### Queue Management
+
+* **Add to queue** – URLs auto-added after 1.5 seconds of input (with validation)
+* **Clipboard paste** – Use the clipboard button for instant queue addition
+* **Retry failed** – Click retry button on failed items to reprocess
+* **Remove items** – Delete videos from queue with confirmation
+* **Clear completed** – Bulk remove all successfully downloaded items
+
+### Features
+
+* **Metadata display** – Each queue item shows video author and description
+* **Error suggestions** – Failed downloads show actionable error messages
+* **Retry attempts** – Automatic 3 retries with exponential backoff
+* **Real-time validation** – URL format checked before queue addition
 
 **Supported URL formats:**
 
@@ -144,29 +166,68 @@ https://vt.tiktok.com/XXXXXXXXXX
 | `/api/proxy-download` | `GET`  | Stream video file to client                            |
 | `/api/health`         | `GET`  | Health check endpoint                                  |
 
-### Example:
+### `/api/download` – POST
 
-```bash
-curl -s -X POST http://localhost:3000/api/download \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://www.tiktok.com/@username/video/123456789"}'
+**Request:**
+
+```json
+{
+  "url": "https://www.tiktok.com/@username/video/123456789"
+}
 ```
 
-Response:
+**Success Response:**
 
 ```json
 {
   "success": true,
   "downloadUrl": "https://…",
   "quality": "hd",
-  "filename": "john-doe-2025-10-16-143022.mp4"
+  "filename": "john-doe-2025-10-16-143022.mp4",
+  "author": "john_doe",
+  "description": "Check out my latest video!",
+  "retryAttempt": null
 }
 ```
 
-Proxy download:
+**Error Response with Categorization:**
+
+```json
+{
+  "success": false,
+  "error": "Unable to extract video data",
+  "errorType": "PARSE_ERROR",
+  "suggestion": "This may be a temporary issue. Try again in a moment.",
+  "details": "All 3 retry attempts failed. Please try again later."
+}
+```
+
+**Error Types:**
+
+| Error Type | Cause | Suggestion |
+| --- | --- | --- |
+| `INVALID_INPUT` | Missing or empty URL | Provide a valid TikTok URL |
+| `INVALID_URL` | URL doesn't contain `tiktok.com` | Use a valid TikTok URL format |
+| `NETWORK_ERROR` | Connection failed (timeout, ECONNREFUSED) | Check internet connection, try again |
+| `RATE_LIMIT_ERROR` | Too many requests (429) | Wait 30 seconds, try different video |
+| `VIDEO_NOT_FOUND` | Private/deleted/restricted video | Try a different video |
+| `PARSE_ERROR` | Failed to extract video data | Temporary issue, retry shortly |
+| `UNKNOWN_ERROR` | Unexpected error | Try again, use different video |
+
+### Proxy Download – GET
 
 ```bash
 curl -L "http://localhost:3000/api/proxy-download?url=<encoded-url>&filename=john-doe-2025-10-16-143022.mp4" -o video.mp4
+```
+
+### Examples:
+
+**Request:**
+
+```bash
+curl -s -X POST http://localhost:3000/api/download \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.tiktok.com/@username/video/123456789"}'
 ```
 
 ## 🧱 Project Structure
