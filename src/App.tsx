@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Loader2, Clipboard } from 'lucide-react'
+import { Loader2, Clipboard, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,11 +11,14 @@ import type { QueueItem, QueueState } from '@/types/queue'
 function App() {
   const [url, setUrl] = useState('')
   const [isPasting, setIsPasting] = useState(false)
+  const [isValidating, setIsValidating] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
   const [queue, setQueue] = useState<QueueState>({
     items: [],
     processingId: null,
   })
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const validationTimerRef = useRef<NodeJS.Timeout | null>(null)
   const processingRef = useRef<boolean>(false)
 
   // Auto-hide completed items after 10 seconds
@@ -56,7 +59,7 @@ function App() {
 
       const data: DownloadResponse = await response.json()
 
-      // Update queue item with result
+      // Update queue item with result and metadata
       setQueue(prev => ({
         ...prev,
         items: prev.items.map(i =>
@@ -65,8 +68,13 @@ function App() {
               ...i,
               status: data.success ? 'completed' : 'failed',
               result: data.success ? data : null,
-              error: data.success ? null : (data.message || data.error || 'Failed to process video'),
+              error: data.success ? null : (data.error || data.message || 'Failed to process video'),
+              suggestion: data.success ? undefined : data.suggestion,
               retryAttempt: data.retryAttempt || null,
+              metadata: data.author || data.description ? {
+                author: data.author,
+                description: data.description,
+              } : undefined,
             }
             : i
         ),
@@ -89,7 +97,12 @@ function App() {
         ...prev,
         items: prev.items.map(i =>
           i.id === item.id
-            ? { ...i, status: 'failed', error: errorMsg }
+            ? {
+              ...i,
+              status: 'failed',
+              error: errorMsg,
+              suggestion: 'Check your internet connection and try again.'
+            }
             : i
         ),
       }))
@@ -124,15 +137,34 @@ function App() {
 
   const handleInputChange = (value: string) => {
     setUrl(value)
+    setValidationError(null)
 
-    // Clear existing debounce timer
+    // Clear existing timers
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current)
     }
+    if (validationTimerRef.current) {
+      clearTimeout(validationTimerRef.current)
+    }
+
+    if (!value.trim()) {
+      setIsValidating(false)
+      return
+    }
+
+    // Instant URL format validation (client-side)
+    const isValidUrl = value.includes('tiktok.com') && (value.includes('http://') || value.includes('https://') || value.startsWith('www.'))
+    if (!isValidUrl) {
+      setValidationError('Invalid TikTok URL format')
+    }
+
+    // Show validating state during debounce
+    setIsValidating(true)
 
     // Set new debounce timer (1.5 seconds delay)
     debounceTimerRef.current = setTimeout(() => {
-      if (value.trim()) {
+      setIsValidating(false)
+      if (value.trim() && isValidUrl) {
         addToQueue(value)
       }
     }, 1500)
@@ -227,9 +259,9 @@ function App() {
         <CardContent className="space-y-5">
 
           {/* Input Section */}
-          <div className="space-y-3">
-            <Label htmlFor="url" className="sr-only">
-              Video URL
+          <div className="space-y-2">
+            <Label htmlFor="url" className="text-sm font-medium">
+              Paste TikTok URL
             </Label>
             <div className="flex gap-2">
               <Input
@@ -240,6 +272,7 @@ function App() {
                 onChange={(e) => handleInputChange(e.target.value)}
                 disabled={isPasting}
                 className="flex-1"
+                aria-describedby="url-helper"
               />
               <Button
                 type="button"
@@ -248,6 +281,7 @@ function App() {
                 variant="outline"
                 size="icon"
                 title="Paste from clipboard and add to queue"
+                aria-label="Paste URL from clipboard"
               >
                 {isPasting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -256,6 +290,23 @@ function App() {
                 )}
               </Button>
             </div>
+
+            {/* Validation Error or Helper Text */}
+            {validationError ? (
+              <div className="flex items-center gap-2 p-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>{validationError}</span>
+              </div>
+            ) : isValidating ? (
+              <div className="flex items-center gap-2 p-2 text-xs text-muted-foreground animate-pulse">
+                <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+                <span>Validating...</span>
+              </div>
+            ) : (
+              <p id="url-helper" className="text-xs text-muted-foreground">
+                Videos are added to queue automatically and processed one at a time
+              </p>
+            )}
           </div>
 
           {/* Queue Display */}

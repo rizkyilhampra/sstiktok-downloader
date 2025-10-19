@@ -252,18 +252,76 @@ async function getFinalDownloadUrl(urlOrHash, type = 'hd') {
   }
 }
 
+// Helper function to map errors to user-friendly messages
+function getErrorResponse(error) {
+  const message = error.message || '';
+  const errorType = error.code || 'UNKNOWN_ERROR';
+
+  // Network/connection errors
+  if (message.includes('ECONNREFUSED') || message.includes('ENOTFOUND') || message.includes('timeout')) {
+    return {
+      errorType: 'NETWORK_ERROR',
+      message: 'Network connection failed',
+      suggestion: 'Check your internet connection and try again.'
+    };
+  }
+
+  // Rate limiting
+  if (message.includes('429') || message.includes('Too Many Requests')) {
+    return {
+      errorType: 'RATE_LIMIT_ERROR',
+      message: 'Too many requests',
+      suggestion: 'Wait 30 seconds and try again or use a different video.'
+    };
+  }
+
+  // Video not found or private
+  if (message.includes('Could not find') || message.includes('download link') || message.includes('No HD download')) {
+    return {
+      errorType: 'VIDEO_NOT_FOUND',
+      message: 'Could not process this video',
+      suggestion: 'The video may be private, deleted, or has restrictions. Try a different video.'
+    };
+  }
+
+  // Parse/extraction errors
+  if (message.includes('extract') || message.includes('parse') || message.includes('hx-redirect')) {
+    return {
+      errorType: 'PARSE_ERROR',
+      message: 'Unable to extract video data',
+      suggestion: 'This may be a temporary issue. Try again in a moment.'
+    };
+  }
+
+  // Default error
+  return {
+    errorType: 'UNKNOWN_ERROR',
+    message: 'Failed to process video',
+    suggestion: 'Please try again. If the problem persists, try a different video.'
+  };
+}
+
 // API endpoint to download TikTok video
 app.post('/api/download', async (req, res) => {
   try {
     const { url } = req.body;
 
     if (!url) {
-      return res.status(400).json({ error: 'TikTok URL is required' });
+      return res.status(400).json({
+        success: false,
+        error: 'TikTok URL is required',
+        errorType: 'INVALID_INPUT'
+      });
     }
 
     // Validate TikTok URL
     if (!url.includes('tiktok.com')) {
-      return res.status(400).json({ error: 'Invalid TikTok URL' });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid TikTok URL',
+        errorType: 'INVALID_URL',
+        suggestion: 'Please enter a valid TikTok URL (e.g., https://www.tiktok.com/@user/video/123...)'
+      });
     }
 
     console.log('Processing TikTok URL:', url);
@@ -299,7 +357,9 @@ app.post('/api/download', async (req, res) => {
       return {
         downloadUrl,
         quality: downloadData.type,
-        filename
+        filename,
+        author: downloadData.author,
+        description: downloadData.description
       };
     });
 
@@ -308,15 +368,21 @@ app.post('/api/download', async (req, res) => {
       downloadUrl: result.downloadUrl,
       quality: result.quality,
       filename: result.filename,
+      author: result.author,
+      description: result.description,
       retryAttempt: attempt,
       isRetrying: retried
     });
 
   } catch (error) {
     console.error('Error:', error.message);
+    const errorInfo = getErrorResponse(error);
+
     res.status(500).json({
-      error: 'Failed to process TikTok video',
-      message: error.message,
+      success: false,
+      error: errorInfo.message,
+      errorType: errorInfo.errorType,
+      suggestion: errorInfo.suggestion,
       details: 'All 3 retry attempts failed. Please try again later.'
     });
   }
