@@ -1,42 +1,38 @@
-import { useState, useEffect, useRef } from 'react'
-import { Loader2, CheckCircle2, AlertCircle, Clipboard } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Loader2, Clipboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
+import { QueueDisplay } from '@/components/QueueDisplay'
 import type { DownloadResponse } from '@/types/api'
+import type { QueueItem, QueueState } from '@/types/queue'
 
 function App() {
   const [url, setUrl] = useState('')
-  const [loading, setLoading] = useState(false)
   const [isPasting, setIsPasting] = useState(false)
-  const [result, setResult] = useState<DownloadResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [retryAttempt, setRetryAttempt] = useState<number | null>(null)
+  const [queue, setQueue] = useState<QueueState>({
+    items: [],
+    processingId: null,
+  })
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const processingRef = useRef<boolean>(false)
 
-  //auto hide error message after 30 seconds
+  // Auto-hide completed items after 10 seconds
   useEffect(() => {
-    if (error) {
+    const completedItems = queue.items.filter(item => item.status === 'completed')
+    if (completedItems.length > 0) {
       const timer = setTimeout(() => {
-        setError(null)
-      }, 30_000)
-
-      return () => clearTimeout(timer)
-    }
-  }, [error])
-
-  // Auto-hide success message and clear input after 10 seconds
-  useEffect(() => {
-    if (result?.success) {
-      const timer = setTimeout(() => {
-        setResult(null)
+        setQueue(prev => ({
+          ...prev,
+          items: prev.items.filter(item => item.status !== 'completed'),
+        }))
         setUrl('')
       }, 10_000)
 
       return () => clearTimeout(timer)
     }
-  }, [result])
+  }, [queue.items])
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
@@ -47,42 +43,37 @@ function App() {
     }
   }, [])
 
-  const processDownload = async (videoUrl: string) => {
-    if (!videoUrl.trim()) {
-      setError('Please enter a TikTok URL')
-      return
-    }
-
-    if (!videoUrl.includes('tiktok.com')) {
-      setError('Please enter a valid TikTok URL')
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-    setResult(null)
-    setRetryAttempt(null)
-
+  // Process a single queue item
+  const processQueueItem = useCallback(async (item: QueueItem) => {
     try {
       const response = await fetch('/api/download', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: videoUrl }),
+        body: JSON.stringify({ url: item.url }),
       })
 
       const data: DownloadResponse = await response.json()
 
-      // Track retry attempt if present
-      if (data.retryAttempt) {
-        setRetryAttempt(data.retryAttempt)
-      }
+      // Update queue item with result
+      setQueue(prev => ({
+        ...prev,
+        items: prev.items.map(i =>
+          i.id === item.id
+            ? {
+              ...i,
+              status: data.success ? 'completed' : 'failed',
+              result: data.success ? data : null,
+              error: data.success ? null : (data.message || data.error || 'Failed to process video'),
+              retryAttempt: data.retryAttempt || null,
+            }
+            : i
+        ),
+      }))
 
       if (data.success && data.downloadUrl) {
-        setResult(data)
-
-        // Automatically trigger download through proxy with dynamic filename
+        // Automatically trigger download through proxy
         const filename = data.filename || 'tiktok-video.mp4'
         const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(data.downloadUrl)}&filename=${encodeURIComponent(filename)}`
         const a = document.createElement('a')
@@ -91,18 +82,45 @@ function App() {
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
-      } else {
-        const errorMsg = data.message || data.error || 'Failed to process video'
-        const details = data.details ? ` ${data.details}` : ''
-        setError(`${errorMsg}${details}`)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Network error occurred')
-    } finally {
-      setLoading(false)
-      setRetryAttempt(null)
+      const errorMsg = err instanceof Error ? err.message : 'Network error occurred'
+      setQueue(prev => ({
+        ...prev,
+        items: prev.items.map(i =>
+          i.id === item.id
+            ? { ...i, status: 'failed', error: errorMsg }
+            : i
+        ),
+      }))
     }
-  }
+  }, [])
+
+  // Add URL to queue and trigger auto-download
+  const addToQueue = useCallback((videoUrl: string) => {
+    if (!videoUrl.trim()) {
+      return
+    }
+
+    if (!videoUrl.includes('tiktok.com')) {
+      return
+    }
+
+    const newItem: QueueItem = {
+      id: `${Date.now()}-${Math.random()}`,
+      url: videoUrl.trim(),
+      status: 'pending',
+      result: null,
+      error: null,
+      retryAttempt: null,
+      addedAt: Date.now(),
+    }
+
+    setQueue(prev => ({
+      ...prev,
+      items: [...prev.items, newItem],
+    }))
+  }, [])
 
   const handleInputChange = (value: string) => {
     setUrl(value)
@@ -115,20 +133,38 @@ function App() {
     // Set new debounce timer (1.5 seconds delay)
     debounceTimerRef.current = setTimeout(() => {
       if (value.trim()) {
-        processDownload(value)
+        addToQueue(value)
       }
     }, 1500)
   }
 
+  // Process next item in queue
+  useEffect(() => {
+    if (processingRef.current) return
+
+    const pendingItem = queue.items.find(item => item.status === 'pending')
+    if (!pendingItem) return
+
+    processingRef.current = true
+    setQueue(prev => ({
+      ...prev,
+      processingId: pendingItem.id,
+      items: prev.items.map(i =>
+        i.id === pendingItem.id ? { ...i, status: 'processing' } : i
+      ),
+    }))
+
+    processQueueItem(pendingItem).finally(() => {
+      processingRef.current = false
+    })
+  }, [queue.items, processQueueItem])
+
   const handlePasteAndDownload = async () => {
     setIsPasting(true)
-    setError(null)
-    setResult(null)
 
     try {
       // Check if Clipboard API is available
       if (!navigator.clipboard || !navigator.clipboard.readText) {
-        setError('Clipboard access not supported on this device. Please paste manually.')
         setIsPasting(false)
         return
       }
@@ -137,29 +173,45 @@ function App() {
       const text = await navigator.clipboard.readText()
 
       if (!text.trim()) {
-        setError('Clipboard is empty')
         setIsPasting(false)
         return
       }
 
       // Validate URL
       if (!text.includes('tiktok.com')) {
-        setError('Please copy a valid TikTok URL to clipboard')
         setIsPasting(false)
         return
       }
 
-      // Trigger input change which will handle the download with debounce
-      handleInputChange(text.trim())
+      // Add to queue immediately (no debounce for paste)
+      addToQueue(text.trim())
       setIsPasting(false)
     } catch (err) {
-      if (err instanceof Error && err.name === 'NotAllowedError') {
-        setError('Clipboard access denied. Please grant permission or paste manually.')
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to paste from clipboard')
-      }
       setIsPasting(false)
     }
+  }
+
+  const handleRetry = (itemId: string) => {
+    setQueue(prev => ({
+      ...prev,
+      items: prev.items.map(i =>
+        i.id === itemId ? { ...i, status: 'pending', error: null } : i
+      ),
+    }))
+  }
+
+  const handleClearCompleted = () => {
+    setQueue(prev => ({
+      ...prev,
+      items: prev.items.filter(i => i.status !== 'completed'),
+    }))
+  }
+
+  const handleRemoveItem = (itemId: string) => {
+    setQueue(prev => ({
+      ...prev,
+      items: prev.items.filter(i => i.id !== itemId),
+    }))
   }
 
   return (
@@ -186,16 +238,16 @@ function App() {
                 placeholder="https://www.tiktok.com/@username/video/..."
                 value={url}
                 onChange={(e) => handleInputChange(e.target.value)}
-                disabled={loading || isPasting}
+                disabled={isPasting}
                 className="flex-1"
               />
               <Button
                 type="button"
                 onClick={handlePasteAndDownload}
-                disabled={loading || isPasting}
+                disabled={isPasting}
                 variant="outline"
                 size="icon"
-                title="Paste from clipboard and auto-download"
+                title="Paste from clipboard and add to queue"
               >
                 {isPasting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -206,42 +258,13 @@ function App() {
             </div>
           </div>
 
-          {/* Loading State */}
-          {loading && (
-            <div className="flex items-center gap-3 p-4 bg-primary/10 border border-primary/20 rounded-lg">
-              <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium text-foreground">
-                  {retryAttempt ? `Retrying... (attempt ${retryAttempt}/3)` : 'Processing video...'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {retryAttempt ? 'Retrying the download after a brief delay' : 'This may take a few seconds'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Error State */}
-          {error && (
-            <div className="flex items-start gap-3 p-4 border rounded-lg border-destructive bg-destructive/10">
-              <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium text-destructive">Error</p>
-                <p className="text-sm text-destructive/90">{error}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Success State */}
-          {result?.success && (
-            <div className="flex items-start gap-3 p-4 border rounded-lg border-primary/50 bg-primary/10">
-              <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium text-foreground">Download Started!</p>
-                <p className="text-sm text-muted-foreground">Check your downloads folder</p>
-              </div>
-            </div>
-          )}
+          {/* Queue Display */}
+          <QueueDisplay
+            items={queue.items}
+            onRetry={handleRetry}
+            onRemove={handleRemoveItem}
+            onClearCompleted={handleClearCompleted}
+          />
         </CardContent>
       </Card>
     </div>
