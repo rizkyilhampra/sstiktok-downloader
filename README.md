@@ -41,6 +41,7 @@ This project **programmatically wraps ssstik.io** to automate HD link extraction
 * 📥 **Download queue system** – Add multiple URLs, processed sequentially
 * 🎬 **Video metadata display** – Shows author and video description
 * 🔄 **Retry mechanism** – Exponential backoff with up to 10 retry attempts
+* 👁️ **Real-time retry visibility** – See live attempt progress with wait times via Server-Sent Events
 * ⏱️ **Request timeout** – 5-minute client-side timeout for hung requests
 * ✅ **URL validation** – Client-side format validation with real-time feedback
 
@@ -165,6 +166,7 @@ https://vt.tiktok.com/XXXXXXXXXX
 | Endpoint              | Method | Description                                            |
 | --------------------- | ------ | ------------------------------------------------------ |
 | `/api/download`       | `POST` | Process TikTok URL and return final HD link + filename |
+| `/api/progress/:requestId` | `GET` (SSE) | Stream real-time retry attempt updates         |
 | `/api/proxy-download` | `GET`  | Stream video file to client                            |
 | `/api/health`         | `GET`  | Health check endpoint                                  |
 
@@ -217,6 +219,35 @@ https://vt.tiktok.com/XXXXXXXXXX
 | `VIDEO_NOT_FOUND` | Private/deleted/restricted video | Try a different video |
 | `PARSE_ERROR` | Failed to extract video data | Temporary issue, retry shortly |
 | `UNKNOWN_ERROR` | Unexpected error | Try again, use different video |
+
+### `/api/progress/:requestId` – GET (Server-Sent Events)
+
+**Purpose:** Stream real-time retry attempt updates to the client.
+
+**Usage:**
+
+Establish an EventSource connection before making the `/api/download` request:
+
+```javascript
+const eventSource = new EventSource(`/api/progress/${requestId}`);
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log(`Attempt ${data.attempt}/10, wait time: ${data.delay}ms`);
+};
+
+eventSource.onerror = () => {
+  eventSource.close();
+};
+```
+
+**Events:**
+
+- `attempt` – Emitted when a retry attempt starts
+  - `attempt`: Current attempt number (1-10)
+  - `delay`: Milliseconds to wait before next retry
+
+**Auto-closes** when download completes or errors out.
 
 ### Proxy Download – GET
 
