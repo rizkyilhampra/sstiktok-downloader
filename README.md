@@ -5,27 +5,8 @@
 `sstiktok-downloader` is a **server-side scraper wrapper** around [ssstik.io](https://ssstik.io) that retrieves **HD TikTok download links** — without ads, watermarks, or requiring user interaction.
 The backend resolves the final MP4 URL and proxies it directly to the browser with a sanitized filename.
 
-> ⚠️ **Disclaimer:** This project is for **educational and research use only**.
-> It does not host or modify TikTok content. Users assume full responsibility for compliance with all relevant laws and terms.
-
-## ⚖️ Legal & Ethical Notice
-
-### 📜 Scraping Notice
-
-This project **programmatically wraps ssstik.io** to automate HD link extraction. It:
-
-* Parses ssstik.io’s HTML responses
-* Extracts video metadata (author, caption, URLs)
-* Proxies final CDN streams via server
-
-### ⚖️ Responsible Use
-
-* Follow TikTok’s and ssstik.io’s Terms of Service
-* Only download content you **own** or have **explicit permission** to use
-* Do **not** use this tool to bypass DRM or creator protections
-* Ensure compliance with **local, state, and international laws**
-
-> The authors assume **no liability** for misuse or violation of third-party rights.
+> [!WARNING]
+> **Legal & Ethical Notice:** This project is for **educational and research use only**. It wraps ssstik.io to extract video metadata and proxies MP4 streams. Users must follow TikTok's and ssstik.io's ToS, only download content they own or have permission for, and ensure local compliance. The authors assume no liability for misuse.
 
 ## ✨ Features
 
