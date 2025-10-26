@@ -2,7 +2,7 @@
 
 ## 📘 Overview
 
-`sstiktok-downloader` is a **server-side scraper wrapper** around [ssstik.io](https://ssstik.io) that retrieves **HD TikTok download links** — without ads, watermarks, or requiring user interaction.
+This is a **server-side scraper wrapper** around [ssstik.io](https://ssstik.io) that retrieves **HD TikTok download links** — without ads, watermarks, or requiring user interaction.
 The backend resolves the final MP4 URL and proxies it directly to the browser with a sanitized filename.
 
 > [!WARNING]
@@ -28,8 +28,18 @@ The backend resolves the final MP4 URL and proxies it directly to the browser wi
 
 ## 🧠 How It Works
 
-```
-Client → Express API → ssstik.io → CDN → Client (MP4 stream)
+```mermaid
+graph LR
+    A["🌐 Client"] -->|TikTok URL| B["⚡ Express API"]
+    B -->|Fetch metadata| C["🔗 ssstik.io"]
+    C -->|Video data| B
+    B -->|Resolve URL| D["📦 CDN"]
+    D -->|MP4 stream| A
+
+    style A fill:#3b82f6,stroke:#1e40af,color:#fff
+    style B fill:#10b981,stroke:#047857,color:#fff
+    style C fill:#f59e0b,stroke:#d97706,color:#fff
+    style D fill:#8b5cf6,stroke:#6d28d9,color:#fff
 ```
 
 1. Fetch TikTok video metadata from ssstik.io
@@ -37,7 +47,7 @@ Client → Express API → ssstik.io → CDN → Client (MP4 stream)
 3. Resolve the final CDN URL
 4. Proxy the MP4 stream to the browser
 
-> Because requests are handled server-side, users never see ssstik.io’s ads.
+> Because requests are handled server-side, users never see ssstik.io's ads.
 
 ## 🖥️ Tech Stack
 
@@ -87,8 +97,8 @@ npm run dev
 
 **URLs:**
 
-* Frontend → [http://localhost:5173](http://localhost:5173)
-* Backend → [http://localhost:3000](http://localhost:3000)
+* Frontend: [http://localhost:5173](http://localhost:5173)
+* Backend: [http://localhost:3000](http://localhost:3000)
 
 Vite proxies `/api/*` to the backend.
 
@@ -98,7 +108,7 @@ Vite proxies `/api/*` to the backend.
 docker-compose up --build
 ```
 
-→ App available at [http://localhost:3000](http://localhost:3000)
+App available at [http://localhost:3000](http://localhost:3000)
 
 ### **Option 3: Local production**
 
@@ -151,100 +161,6 @@ https://vt.tiktok.com/XXXXXXXXXX
 | `/api/proxy-download` | `GET`  | Stream video file to client                            |
 | `/api/health`         | `GET`  | Health check endpoint                                  |
 
-### `/api/download` – POST
-
-**Request:**
-
-```json
-{
-  "url": "https://www.tiktok.com/@username/video/123456789"
-}
-```
-
-**Success Response:**
-
-```json
-{
-  "success": true,
-  "downloadUrl": "https://…",
-  "quality": "hd",
-  "filename": "john-doe-2025-10-16-143022.mp4",
-  "author": "john_doe",
-  "description": "Check out my latest video!",
-  "retryAttempt": null
-}
-```
-
-**Error Response with Categorization:**
-
-```json
-{
-  "success": false,
-  "error": "Unable to extract video data",
-  "errorType": "PARSE_ERROR",
-  "suggestion": "This may be a temporary issue. Try again in a moment.",
-  "details": "All 10 retry attempts failed. Please try again later.",
-  "retryAttempt": 10,
-  "isRetrying": true
-}
-```
-
-**Error Types:**
-
-| Error Type | Cause | Suggestion |
-| --- | --- | --- |
-| `INVALID_INPUT` | Missing or empty URL | Provide a valid TikTok URL |
-| `INVALID_URL` | URL doesn't contain `tiktok.com` | Use a valid TikTok URL format |
-| `NETWORK_ERROR` | Connection failed (timeout, ECONNREFUSED) | Check internet connection, try again |
-| `RATE_LIMIT_ERROR` | Too many requests (429) | Wait 30 seconds, try different video |
-| `VIDEO_NOT_FOUND` | Private/deleted/restricted video | Try a different video |
-| `PARSE_ERROR` | Failed to extract video data | Temporary issue, retry shortly |
-| `UNKNOWN_ERROR` | Unexpected error | Try again, use different video |
-
-### `/api/progress/:requestId` – GET (Server-Sent Events)
-
-**Purpose:** Stream real-time retry attempt updates to the client.
-
-**Usage:**
-
-Establish an EventSource connection before making the `/api/download` request:
-
-```javascript
-const eventSource = new EventSource(`/api/progress/${requestId}`);
-
-eventSource.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log(`Attempt ${data.attempt}/10, wait time: ${data.delay}ms`);
-};
-
-eventSource.onerror = () => {
-  eventSource.close();
-};
-```
-
-**Events:**
-
-- `attempt` – Emitted when a retry attempt starts
-  - `attempt`: Current attempt number (1-10)
-  - `delay`: Milliseconds to wait before next retry
-
-**Auto-closes** when download completes or errors out.
-
-### Proxy Download – GET
-
-```bash
-curl -L "http://localhost:3000/api/proxy-download?url=<encoded-url>&filename=john-doe-2025-10-16-143022.mp4" -o video.mp4
-```
-
-### Examples:
-
-**Request:**
-
-```bash
-curl -s -X POST http://localhost:3000/api/download \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://www.tiktok.com/@username/video/123456789"}'
-```
 
 ## 🧱 Project Structure
 
@@ -264,17 +180,6 @@ sstiktok-downloader/
 ├── package.json
 └── .env
 ```
-
-## ⚙️ Available Scripts
-
-| Script            | Description                   |
-| ----------------- | ----------------------------- |
-| `npm run dev`     | Start frontend (Vite)         |
-| `npm run server`  | Start backend (Express)       |
-| `npm run build`   | Build for production          |
-| `npm run preview` | Preview production build      |
-| `npm run start`   | Serve app + API in production |
-
 
 ## 📄 License
 
