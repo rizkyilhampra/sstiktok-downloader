@@ -12,6 +12,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Store active SSE connections
+const sseConnections = new Map();
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -314,10 +317,43 @@ function getErrorResponse(error) {
   };
 }
 
+// SSE endpoint for progress updates
+app.get('/api/progress/:requestId', (req, res) => {
+  const { requestId } = req.params;
+
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected', requestId })}\n\n`);
+
+  // Store this connection
+  sseConnections.set(requestId, res);
+
+  // Clean up on client disconnect
+  req.on('close', () => {
+    sseConnections.delete(requestId);
+    console.log(`SSE connection closed for request ${requestId}`);
+  });
+
+  console.log(`SSE connection established for request ${requestId}`);
+});
+
+// Helper function to send progress updates via SSE
+function sendProgress(requestId, data) {
+  const connection = sseConnections.get(requestId);
+  if (connection) {
+    connection.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+}
+
 // API endpoint to download TikTok video
 app.post('/api/download', async (req, res) => {
   try {
-    const { url } = req.body;
+    const { url, requestId } = req.body;
 
     if (!url) {
       return res.status(400).json({
@@ -338,6 +374,16 @@ app.post('/api/download', async (req, res) => {
     }
 
     console.log('Processing TikTok URL:', url);
+
+    // Send initial processing status
+    if (requestId) {
+      sendProgress(requestId, {
+        type: 'status',
+        status: 'processing',
+        attempt: 1,
+        maxAttempts: 10
+      });
+    }
 
     // Wrap entire download pipeline with retry logic
     const { result, attempt, retried } = await retryWithBackoff(async () => {
@@ -374,7 +420,36 @@ app.post('/api/download', async (req, res) => {
         author: downloadData.author,
         description: downloadData.description
       };
+    }, 10, (currentAttempt, maxAttempts) => {
+      // Send progress update via SSE
+      if (requestId) {
+        const delay = calculateBackoffDelay(currentAttempt);
+        sendProgress(requestId, {
+          type: 'retry',
+          attempt: currentAttempt,
+          maxAttempts,
+          delay,
+          message: currentAttempt === 1
+            ? 'Starting download...'
+            : `Retry attempt ${currentAttempt}/${maxAttempts} (waiting ${(delay / 1000).toFixed(1)}s)`
+        });
+      }
     });
+
+    // Send success event via SSE
+    if (requestId) {
+      sendProgress(requestId, {
+        type: 'success',
+        attempt,
+        retried
+      });
+      // Close SSE connection
+      const connection = sseConnections.get(requestId);
+      if (connection) {
+        connection.end();
+        sseConnections.delete(requestId);
+      }
+    }
 
     res.json({
       success: true,
@@ -390,6 +465,22 @@ app.post('/api/download', async (req, res) => {
   } catch (error) {
     console.error('Error:', error.message);
     const errorInfo = getErrorResponse(error);
+
+    // Send error event via SSE
+    if (requestId) {
+      sendProgress(requestId, {
+        type: 'error',
+        error: errorInfo.message,
+        errorType: errorInfo.errorType,
+        suggestion: errorInfo.suggestion
+      });
+      // Close SSE connection
+      const connection = sseConnections.get(requestId);
+      if (connection) {
+        connection.end();
+        sseConnections.delete(requestId);
+      }
+    }
 
     res.status(500).json({
       success: false,

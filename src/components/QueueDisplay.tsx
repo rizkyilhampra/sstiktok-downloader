@@ -30,7 +30,7 @@ export function QueueDisplay({
   const getStatusLabel = (status: QueueItem['status'], retryAttempt?: number | null) => {
     switch (status) {
       case 'processing':
-        if (retryAttempt && retryAttempt > 1) {
+        if (retryAttempt && retryAttempt >= 1) {
           return `Processing (Attempt ${retryAttempt}/10)`
         }
         return 'Processing...'

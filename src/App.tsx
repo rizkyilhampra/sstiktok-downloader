@@ -53,17 +53,53 @@ function App() {
       controller.abort()
     }, 5 * 60 * 1000) // 5 minute timeout
 
+    // Generate unique request ID for this download
+    const requestId = `${item.id}-${Date.now()}`
+
+    // Establish SSE connection for real-time progress updates
+    const eventSource = new EventSource(`/api/progress/${requestId}`)
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+
+        if (data.type === 'retry' || data.type === 'status') {
+          // Update queue item with current retry attempt
+          setQueue(prev => ({
+            ...prev,
+            items: prev.items.map(i =>
+              i.id === item.id
+                ? {
+                    ...i,
+                    retryAttempt: data.attempt || null,
+                  }
+                : i
+            ),
+          }))
+        }
+      } catch (e) {
+        console.error('Failed to parse SSE message:', e)
+      }
+    }
+
+    eventSource.onerror = () => {
+      eventSource.close()
+    }
+
     try {
       const response = await fetch('/api/download', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: item.url }),
+        body: JSON.stringify({ url: item.url, requestId }),
         signal: controller.signal,
       })
 
       const data: DownloadResponse = await response.json()
+
+      // Close SSE connection
+      eventSource.close()
 
       // Update queue item with result and metadata
       setQueue(prev => ({
@@ -98,6 +134,9 @@ function App() {
         document.body.removeChild(a)
       }
     } catch (err) {
+      // Close SSE connection on error
+      eventSource.close()
+
       let errorMsg = 'Network error occurred'
 
       if (err instanceof Error) {
