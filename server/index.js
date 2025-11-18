@@ -246,8 +246,17 @@ async function getFinalDownloadUrl(urlOrHash, type = 'hd') {
       }
       targetUrl = `https://tikcdn.io/ssstik/${hashMatch[1]}`;
     } else {
-      // HD: Use the hx-redirect URL directly
-      targetUrl = urlOrHash;
+      // HD: Decode the base64 encoded URL from hx-redirect
+      // The URL format is: https://tikcdn.io/ssstik/[base64-encoded-video-url]
+      const base64Match = urlOrHash.match(/\/ssstik\/([^?]+)/);
+      if (base64Match) {
+        const decodedUrl = Buffer.from(base64Match[1], 'base64').toString('utf-8');
+        console.log('Decoded video URL:', decodedUrl);
+        targetUrl = decodedUrl;
+      } else {
+        // Fallback to using the URL directly
+        targetUrl = urlOrHash;
+      }
     }
 
     const response = await axios.get(targetUrl, {
