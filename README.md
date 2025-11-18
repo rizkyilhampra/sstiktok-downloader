@@ -14,7 +14,7 @@ The backend resolves the final MP4 URL and proxies it directly to the browser wi
 * 🚫 **No ad gate** – Direct API calls (no ssstik.io UI)
 * ⚡ **One-click download** – Paste & go
 * 📋 **Clipboard integration**
-* 🧩 **Smart filenames** – `author-timestamp.mp4`
+* 🧩 **Smart filenames** – `username-timestamp.mp4` (extracts @username from TikTok URL when author name is emojis)
 * 🧭 **Responsive UI** – Mobile + desktop
 * 💡 **Helpful errors** – Clear, categorized error messages with suggestions
 * 🐳 **Docker ready** – Simple deployment
@@ -33,7 +33,7 @@ graph LR
     A["🌐 Client"] -->|TikTok URL| B["⚡ Express API"]
     B -->|Fetch metadata| C["🔗 ssstik.io"]
     C -->|Video data| B
-    B -->|Resolve URL| D["📦 CDN"]
+    B -->|Decode base64 URL| D["📦 TikTok CDN"]
     D -->|MP4 stream| A
 
     style A fill:#3b82f6,stroke:#1e40af,color:#fff
@@ -42,10 +42,11 @@ graph LR
     style D fill:#8b5cf6,stroke:#6d28d9,color:#fff
 ```
 
-1. Fetch TikTok video metadata from ssstik.io
-2. Extract the HD redirect handle
-3. Resolve the final CDN URL
-4. Proxy the MP4 stream to the browser
+1. **Fetch video metadata** from ssstik.io
+2. **Extract hx-redirect URL** containing base64-encoded video URL
+3. **Decode base64** to get direct TikTok CDN URL (bypassing tikcdn.io proxy)
+4. **Resolve final URL** with proper headers and redirects
+5. **Proxy MP4 stream** to the browser
 
 > Because requests are handled server-side, users never see ssstik.io's ads.
 
@@ -160,6 +161,17 @@ https://vt.tiktok.com/XXXXXXXXXX
 | `/api/progress/:requestId` | `GET` (SSE) | Stream real-time retry attempt updates         |
 | `/api/proxy-download` | `GET`  | Stream video file to client                            |
 | `/api/health`         | `GET`  | Health check endpoint                                  |
+
+### Download Flow Details
+
+The `/api/download` endpoint performs the following steps:
+
+1. **Scrape ssstik.io** – Fetch video metadata and HD download data
+2. **Get hx-redirect URL** – Extract base64-encoded URL from response headers
+3. **Decode base64** – Extract actual TikTok CDN URL (e.g., `https://v16.tokcdn.com/...`)
+4. **Resolve final URL** – Follow redirects to get playable video URL
+5. **Generate filename** – Uses author name, or extracts `@username` from TikTok URL if author name contains only emojis
+6. **Return metadata** – Provides download URL, quality, filename, author, and description
 
 
 ## 🧱 Project Structure
