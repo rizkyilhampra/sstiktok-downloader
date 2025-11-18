@@ -81,8 +81,55 @@ async function retryWithBackoff(operation, maxAttempts = 10, onAttempt = null) {
   throw lastError;
 }
 
+// Helper function to extract username from TikTok URL by fetching and parsing embedded JSON
+async function extractUsernameFromUrl(url) {
+  try {
+    console.log('Fetching TikTok page to extract username from embedded data...');
+
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+      },
+      maxRedirects: 5
+    });
+
+    const html = response.data;
+
+    // Try to extract from __UNIVERSAL_DATA_FOR_REHYDRATION__ script tag
+    const scriptMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application\/json">(.*?)<\/script>/s);
+    if (scriptMatch) {
+      try {
+        const jsonStr = scriptMatch[1];
+
+        // Method 1: Extract from canonical URL in seo.abtest
+        // Pattern: "canonical":"https:\u002F\u002Fwww.tiktok.com\u002F@username\u002Fvideo\u002F..."
+        const canonicalMatch = jsonStr.match(/"canonical":"https:\\u002F\\u002Fwww\.tiktok\.com\\u002F@([^\\]+)\\u002Fvideo/);
+        if (canonicalMatch) {
+          const username = canonicalMatch[1];
+          console.log('Extracted username from canonical URL:', username);
+          return username;
+        }
+
+        // Method 2: Parse the full JSON and get uniqueId from author object
+        const data = JSON.parse(jsonStr);
+        const username = data?.__DEFAULT_SCOPE__?.['webapp.video-detail']?.itemInfo?.itemStruct?.author?.uniqueId;
+        if (username) {
+          console.log('Extracted username from author.uniqueId:', username);
+          return username;
+        }
+      } catch (e) {
+        console.error('Failed to parse embedded JSON:', e.message);
+      }
+    }
+  } catch (error) {
+    console.error('Error extracting username from URL:', error.message);
+  }
+
+  return null;
+}
+
 // Helper function to sanitize and create filename
-function createFilename(author, description) {
+async function createFilename(author, tiktokUrl = null) {
   // Sanitize function: remove special chars, convert to lowercase, replace spaces with hyphens
   const sanitize = (str) => {
     return str
@@ -93,13 +140,21 @@ function createFilename(author, description) {
       .trim();
   };
 
-  // Sanitize author and description
-  const sanitizedAuthor = sanitize(author || 'unknown');
-  let sanitizedDesc = sanitize(description || 'video');
+  // Sanitize author
+  let sanitizedAuthor = sanitize(author || '');
 
-  // Truncate description to max 50 characters
-  if (sanitizedDesc.length > 50) {
-    sanitizedDesc = sanitizedDesc.substring(0, 50);
+  // If sanitized author is empty (e.g., author was only emojis), try to get username from TikTok URL
+  if (!sanitizedAuthor && tiktokUrl) {
+    console.log('Author name is empty (likely emojis), attempting to extract username from URL...');
+    const username = await extractUsernameFromUrl(tiktokUrl);
+    if (username) {
+      sanitizedAuthor = sanitize(username);
+    }
+  }
+
+  // Final fallback
+  if (!sanitizedAuthor) {
+    sanitizedAuthor = 'unknown';
   }
 
   // Create timestamp: 2025-01-16-143022
@@ -424,8 +479,8 @@ app.post('/api/download', async (req, res) => {
 
       console.log('Final download URL obtained');
 
-      // Generate filename from author and description
-      const filename = createFilename(downloadData.author, downloadData.description);
+      // Generate filename from author
+      const filename = await createFilename(downloadData.author, url);
       console.log('Generated filename:', filename);
 
       return {
