@@ -72,7 +72,7 @@ graph LR
 
 ## 🚀 Installation
 
-### **Option 1: Local development**
+### Local development
 
 ```bash
 git clone https://github.com/rizkyilhampra/sstiktok-downloader.git
@@ -103,7 +103,7 @@ npm run dev
 
 Vite proxies `/api/*` to the backend.
 
-### **Option 2: Docker**
+### Docker
 
 ```bash
 docker-compose up --build
@@ -111,7 +111,7 @@ docker-compose up --build
 
 App available at [http://localhost:3000](http://localhost:3000)
 
-### **Option 3: Local production**
+### Local production
 
 ```bash
 npm run start
