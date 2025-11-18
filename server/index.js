@@ -264,6 +264,12 @@ async function getFinalDownloadUrl(urlOrHash, type = 'hd') {
     return response.request.res.responseUrl || targetUrl;
   } catch (error) {
     console.error('Error getting final download URL:', error.message);
+    console.error('Error details:', {
+      code: error.code,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data?.substring(0, 200)
+    });
     throw error;
   }
 }
@@ -396,7 +402,7 @@ app.post('/api/download', async (req, res) => {
       if (downloadData.type === 'hd') {
         // Step 2: Get hx-redirect URL for HD
         const hxRedirectUrl = await getHxRedirectUrl(downloadData.directUrl, downloadData.ttValue);
-        console.log('Got hx-redirect URL');
+        console.log('Got hx-redirect URL:', hxRedirectUrl);
 
         // Step 3: Get final download URL
         downloadUrl = await getFinalDownloadUrl(hxRedirectUrl, 'hd');
