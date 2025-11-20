@@ -3,7 +3,6 @@ import { Loader2, Clipboard, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
 import { QueueDisplay } from '@/components/QueueDisplay'
 import type { DownloadResponse } from '@/types/api'
 import type { QueueItem, QueueState } from '@/types/queue'
@@ -13,6 +12,7 @@ function App() {
   const [isPasting, setIsPasting] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [pasteError, setPasteError] = useState<string | null>(null)
   const [queue, setQueue] = useState<QueueState>({
     items: [],
     processingId: null,
@@ -195,6 +195,7 @@ function App() {
   const handleInputChange = (value: string) => {
     setUrl(value)
     setValidationError(null)
+    setPasteError(null) // Clear paste error when user starts typing
 
     // Clear existing timers
     if (debounceTimerRef.current) {
@@ -250,10 +251,12 @@ function App() {
 
   const handlePasteAndDownload = async () => {
     setIsPasting(true)
+    setPasteError(null)
 
     try {
       // Check if Clipboard API is available
       if (!navigator.clipboard || !navigator.clipboard.readText) {
+        setPasteError('Clipboard access not supported in your browser')
         setIsPasting(false)
         return
       }
@@ -262,20 +265,29 @@ function App() {
       const text = await navigator.clipboard.readText()
 
       if (!text.trim()) {
+        setPasteError('Clipboard is empty. Copy a TikTok URL first.')
         setIsPasting(false)
         return
       }
 
       // Validate URL
       if (!text.includes('tiktok.com')) {
+        setPasteError('Clipboard doesn\'t contain a TikTok URL')
         setIsPasting(false)
         return
       }
 
       // Add to queue immediately (no debounce for paste)
       addToQueue(text.trim())
+      setPasteError(null)
       setIsPasting(false)
     } catch (err) {
+      // Handle permission denied or other errors
+      if (err instanceof Error && err.name === 'NotAllowedError') {
+        setPasteError('Permission denied. Please allow clipboard access.')
+      } else {
+        setPasteError('Failed to read from clipboard. Try pasting manually below.')
+      }
       setIsPasting(false)
     }
   }
@@ -316,11 +328,54 @@ function App() {
         <CardContent className="space-y-5">
 
           {/* Input Section */}
-          <div className="space-y-2">
-            <Label htmlFor="url" className="text-sm font-medium">
-              Paste TikTok URL
-            </Label>
-            <div className="flex gap-2">
+          <div className="space-y-4">
+            {/* Primary CTA - Paste Button */}
+            <div className="space-y-2">
+              <Button
+                type="button"
+                onClick={handlePasteAndDownload}
+                disabled={isPasting}
+                variant="default"
+                size="lg"
+                className="w-full h-12"
+                aria-label="Paste URL from clipboard and add to queue"
+              >
+                {isPasting ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Pasting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Clipboard className="h-5 w-5" />
+                    <span>Paste from Clipboard</span>
+                  </>
+                )}
+              </Button>
+
+              {/* Paste Error Message */}
+              {pasteError && (
+                <div className="flex items-center gap-2 p-2 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{pasteError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Divider */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">
+                  Or enter manually
+                </span>
+              </div>
+            </div>
+
+            {/* Secondary - Manual Input */}
+            <div className="space-y-2">
               <Input
                 id="url"
                 type="text"
@@ -328,42 +383,26 @@ function App() {
                 value={url}
                 onChange={(e) => handleInputChange(e.target.value)}
                 disabled={isPasting}
-                className="flex-1"
                 aria-describedby="url-helper"
               />
-              <Button
-                type="button"
-                onClick={handlePasteAndDownload}
-                disabled={isPasting}
-                variant="outline"
-                size="icon"
-                title="Paste from clipboard and add to queue"
-                aria-label="Paste URL from clipboard"
-              >
-                {isPasting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Clipboard className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
 
-            {/* Validation Error or Helper Text */}
-            {validationError ? (
-              <div className="flex items-center gap-2 p-2 text-xs text-destructive">
-                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                <span>{validationError}</span>
-              </div>
-            ) : isValidating ? (
-              <div className="flex items-center gap-2 p-2 text-xs text-muted-foreground animate-pulse">
-                <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
-                <span>Validating...</span>
-              </div>
-            ) : (
-              <p id="url-helper" className="text-xs text-muted-foreground">
-                Videos are added to queue automatically and processed one at a time
-              </p>
-            )}
+              {/* Validation Error or Helper Text */}
+              {validationError ? (
+                <div className="flex items-center gap-2 p-2 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{validationError}</span>
+                </div>
+              ) : isValidating ? (
+                <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground animate-pulse">
+                  <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
+                  <span>Validating...</span>
+                </div>
+              ) : (
+                <p id="url-helper" className="text-sm text-muted-foreground">
+                  Videos are added to queue automatically and processed one at a time
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Queue Display */}

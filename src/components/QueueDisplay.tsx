@@ -61,7 +61,7 @@ export function QueueDisplay({
   return (
     <div className="space-y-3">
       {/* Queue Summary */}
-      <div className="flex items-center justify-between p-3 bg-secondary/50 border border-secondary rounded-lg">
+      <div className="flex items-center justify-between p-4 bg-secondary/50 border border-secondary rounded-lg">
         <div className="text-sm font-medium text-foreground" role="status" aria-live="polite">
           Queue: {totalCount} item{totalCount !== 1 ? 's' : ''}
           {processingCount > 0 && ` (${processingCount} processing)`}
@@ -72,7 +72,7 @@ export function QueueDisplay({
             variant="ghost"
             size="sm"
             onClick={onClearCompleted}
-            className="h-8 px-2 text-xs"
+            className="h-10 px-3 text-sm"
             aria-label={`Clear ${completedCount} completed item${completedCount !== 1 ? 's' : ''}`}
             title="Clear completed downloads from queue"
           >
@@ -82,11 +82,11 @@ export function QueueDisplay({
       </div>
 
       {/* Queue Items */}
-      <div className="space-y-2 max-h-96 overflow-y-auto" role="region" aria-label="Download queue">
+      <div className="space-y-3 max-h-96 overflow-y-auto" role="region" aria-label="Download queue">
         {items.map((item, index) => (
           <div
             key={item.id}
-            className={`p-3 border rounded-lg transition-colors ${
+            className={`p-4 border rounded-lg transition-colors ${
               item.status === 'completed'
                 ? 'border-primary/50 bg-primary/10'
                 : item.status === 'failed'
@@ -103,16 +103,16 @@ export function QueueDisplay({
               {/* Status Icon */}
               <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
                 {item.status === 'processing' && (
-                  <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
                 )}
                 {item.status === 'completed' && (
-                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                  <CheckCircle2 className="h-5 w-5 text-primary" />
                 )}
                 {item.status === 'failed' && (
-                  <AlertCircle className="h-4 w-4 text-destructive" />
+                  <AlertCircle className="h-5 w-5 text-destructive" />
                 )}
                 {item.status === 'pending' && (
-                  <div className="h-4 w-4 rounded-full border-2 border-secondary-foreground/50 border-t-secondary-foreground animate-spin" />
+                  <div className="h-5 w-5 rounded-full border-2 border-secondary-foreground/50 border-t-secondary-foreground animate-spin" />
                 )}
               </div>
 
@@ -122,7 +122,7 @@ export function QueueDisplay({
                   <div className="text-sm font-medium text-foreground">
                     #{index + 1}
                   </div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-sm text-muted-foreground">
                     {getStatusLabel(item.status, item.retryAttempt)}
                     {item.status === 'processing' && getEstimatedWaitTime(item.retryAttempt)}
                   </div>
@@ -132,18 +132,18 @@ export function QueueDisplay({
                 {item.metadata?.author || item.metadata?.description ? (
                   <div className="mb-1.5">
                     {item.metadata.author && (
-                      <div className="text-xs font-medium text-foreground truncate">
+                      <div className="text-sm font-medium text-foreground truncate">
                         @{item.metadata.author}
                       </div>
                     )}
                     {item.metadata.description && (
-                      <div className="text-xs text-muted-foreground truncate">
+                      <div className="text-sm text-muted-foreground truncate">
                         {item.metadata.description}
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="text-xs text-muted-foreground truncate mb-1.5">
+                  <div className="text-sm text-muted-foreground truncate mb-1.5">
                     {item.url}
                   </div>
                 )}
@@ -151,35 +151,35 @@ export function QueueDisplay({
                 {/* Error Message with Suggestion */}
                 {item.error && (
                   <div className="mt-1.5 space-y-1">
-                    <p className="text-xs font-medium text-destructive">{item.error}</p>
+                    <p className="text-sm font-medium text-destructive">{item.error}</p>
                     {item.suggestion && (
-                      <p className="text-xs text-destructive/80">{item.suggestion}</p>
+                      <p className="text-sm text-destructive/80">{item.suggestion}</p>
                     )}
                   </div>
                 )}
 
                 {/* Success Details */}
                 {item.result?.success && item.result.filename && (
-                  <p className="text-xs text-primary mt-1.5">{item.result.filename}</p>
+                  <p className="text-sm text-primary mt-1.5">{item.result.filename}</p>
                 )}
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 {item.status === 'failed' && !removeConfirm && (
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => onRetry(item.id)}
-                    className="h-9 w-9 p-0"
+                    className="h-11 w-11 p-0"
                     title="Retry download (add back to queue)"
                     aria-label="Retry this download"
                   >
-                    <RotateCcw className="h-4 w-4" />
+                    <RotateCcw className="h-5 w-5" />
                   </Button>
                 )}
                 {removeConfirm === item.id ? (
-                  <div className="flex gap-1">
+                  <div className="flex gap-2">
                     <Button
                       variant="destructive"
                       size="sm"
@@ -187,7 +187,7 @@ export function QueueDisplay({
                         onRemove(item.id)
                         setRemoveConfirm(null)
                       }}
-                      className="h-8 px-2 text-xs"
+                      className="h-10 px-3 text-sm"
                     >
                       Remove
                     </Button>
@@ -195,7 +195,7 @@ export function QueueDisplay({
                       variant="ghost"
                       size="sm"
                       onClick={() => setRemoveConfirm(null)}
-                      className="h-8 px-2 text-xs"
+                      className="h-10 px-3 text-sm"
                     >
                       Cancel
                     </Button>
@@ -205,11 +205,11 @@ export function QueueDisplay({
                     variant="ghost"
                     size="sm"
                     onClick={() => setRemoveConfirm(item.id)}
-                    className="h-9 w-9 p-0 text-destructive hover:text-destructive"
+                    className="h-11 w-11 p-0 text-destructive hover:text-destructive"
                     title="Remove from queue"
                     aria-label="Remove this item from queue"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-5 w-5" />
                   </Button>
                 )}
               </div>
