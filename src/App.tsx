@@ -4,8 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { QueueDisplay } from '@/components/QueueDisplay'
-import type { DownloadResponse } from '@/types/api'
 import type { QueueItem, QueueState } from '@/types/queue'
+import { usePollJob } from '@/hooks/usePollJob'
+
+const isTikTokUrl = (url: string) => url.includes('tiktok.com')
 
 function App() {
   const [url, setUrl] = useState('')
@@ -20,6 +22,15 @@ function App() {
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const validationTimerRef = useRef<NodeJS.Timeout | null>(null)
   const processingRef = useRef<boolean>(false)
+
+  const { processQueueItem, stopJob } = usePollJob(setQueue)
+
+  const updateQueueItem = useCallback((id: string, patch: Partial<QueueItem>) => {
+    setQueue(prev => ({
+      ...prev,
+      items: prev.items.map(i => (i.id === id ? { ...i, ...patch } : i)),
+    }))
+  }, [])
 
   // Auto-hide completed items after 10 seconds
   useEffect(() => {
@@ -46,135 +57,9 @@ function App() {
     }
   }, [])
 
-  // Process a single queue item
-  const processQueueItem = useCallback(async (item: QueueItem) => {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => {
-      controller.abort()
-    }, 5 * 60 * 1000) // 5 minute timeout
-
-    // Generate unique request ID for this download
-    const requestId = `${item.id}-${Date.now()}`
-
-    // Establish SSE connection for real-time progress updates
-    const eventSource = new EventSource(`/api/progress/${requestId}`)
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-
-        if (data.type === 'retry' || data.type === 'status') {
-          // Update queue item with current retry attempt
-          setQueue(prev => ({
-            ...prev,
-            items: prev.items.map(i =>
-              i.id === item.id
-                ? {
-                    ...i,
-                    retryAttempt: data.attempt || null,
-                  }
-                : i
-            ),
-          }))
-        }
-      } catch (e) {
-        console.error('Failed to parse SSE message:', e)
-      }
-    }
-
-    eventSource.onerror = () => {
-      eventSource.close()
-    }
-
-    try {
-      const response = await fetch('/api/download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: item.url, requestId }),
-        signal: controller.signal,
-      })
-
-      const data: DownloadResponse = await response.json()
-
-      // Close SSE connection
-      eventSource.close()
-
-      // Update queue item with result and metadata
-      setQueue(prev => ({
-        ...prev,
-        items: prev.items.map(i =>
-          i.id === item.id
-            ? {
-              ...i,
-              status: data.success ? 'completed' : 'failed',
-              result: data.success ? data : null,
-              error: data.success ? null : (data.error || data.message || 'Failed to process video'),
-              suggestion: data.success ? undefined : data.suggestion,
-              retryAttempt: data.retryAttempt || null,
-              metadata: data.author || data.description ? {
-                author: data.author,
-                description: data.description,
-              } : undefined,
-            }
-            : i
-        ),
-      }))
-
-      if (data.success && data.downloadUrl) {
-        // Automatically trigger download through proxy
-        const filename = data.filename || 'tiktok-video.mp4'
-        const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(data.downloadUrl)}&filename=${encodeURIComponent(filename)}`
-        const a = document.createElement('a')
-        a.href = proxyUrl
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-      }
-    } catch (err) {
-      // Close SSE connection on error
-      eventSource.close()
-
-      let errorMsg = 'Network error occurred'
-
-      if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          errorMsg = 'Request timeout - took too long to process (over 5 minutes)'
-        } else {
-          errorMsg = err.message
-        }
-      }
-
-      setQueue(prev => ({
-        ...prev,
-        items: prev.items.map(i =>
-          i.id === item.id
-            ? {
-              ...i,
-              status: 'failed',
-              error: errorMsg,
-              suggestion: 'Check your internet connection and try again.'
-            }
-            : i
-        ),
-      }))
-    } finally {
-      clearTimeout(timeoutId)
-      controller.abort()
-    }
-  }, [])
-
-  // Add URL to queue and trigger auto-download
+  // Add URL to queue
   const addToQueue = useCallback((videoUrl: string) => {
-    if (!videoUrl.trim()) {
-      return
-    }
-
-    if (!videoUrl.includes('tiktok.com')) {
-      return
-    }
+    if (!videoUrl.trim() || !isTikTokUrl(videoUrl)) return
 
     const newItem: QueueItem = {
       id: `${Date.now()}-${Math.random()}`,
@@ -195,40 +80,28 @@ function App() {
   const handleInputChange = (value: string) => {
     setUrl(value)
     setValidationError(null)
-    setPasteError(null) // Clear paste error when user starts typing
+    setPasteError(null)
 
-    // Clear existing timers
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current)
-    }
-    if (validationTimerRef.current) {
-      clearTimeout(validationTimerRef.current)
-    }
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    if (validationTimerRef.current) clearTimeout(validationTimerRef.current)
 
     if (!value.trim()) {
       setIsValidating(false)
       return
     }
 
-    // Instant URL format validation (client-side)
-    const isValidUrl = value.includes('tiktok.com') && (value.includes('http://') || value.includes('https://') || value.startsWith('www.'))
-    if (!isValidUrl) {
-      setValidationError('Invalid TikTok URL format')
-    }
+    const isValidUrl = isTikTokUrl(value) && (value.includes('http://') || value.includes('https://') || value.startsWith('www.'))
+    if (!isValidUrl) setValidationError('Invalid TikTok URL format')
 
-    // Show validating state during debounce
     setIsValidating(true)
 
-    // Set new debounce timer (1.5 seconds delay)
     debounceTimerRef.current = setTimeout(() => {
       setIsValidating(false)
-      if (value.trim() && isValidUrl) {
-        addToQueue(value)
-      }
+      if (value.trim() && isValidUrl) addToQueue(value)
     }, 1500)
   }
 
-  // Process next item in queue
+  // Process next pending item in queue
   useEffect(() => {
     if (processingRef.current) return
 
@@ -252,53 +125,35 @@ function App() {
   const handlePasteAndDownload = async () => {
     setIsPasting(true)
     setPasteError(null)
-
     try {
-      // Check if Clipboard API is available
-      if (!navigator.clipboard || !navigator.clipboard.readText) {
+      if (!navigator.clipboard?.readText) {
         setPasteError('Clipboard access not supported in your browser')
-        setIsPasting(false)
         return
       }
-
-      // Read from clipboard
       const text = await navigator.clipboard.readText()
-
       if (!text.trim()) {
         setPasteError('Clipboard is empty. Copy a TikTok URL first.')
-        setIsPasting(false)
         return
       }
-
-      // Validate URL
-      if (!text.includes('tiktok.com')) {
-        setPasteError('Clipboard doesn\'t contain a TikTok URL')
-        setIsPasting(false)
+      if (!isTikTokUrl(text)) {
+        setPasteError("Clipboard doesn't contain a TikTok URL")
         return
       }
-
-      // Add to queue immediately (no debounce for paste)
       addToQueue(text.trim())
       setPasteError(null)
-      setIsPasting(false)
     } catch (err) {
-      // Handle permission denied or other errors
-      if (err instanceof Error && err.name === 'NotAllowedError') {
-        setPasteError('Permission denied. Please allow clipboard access.')
-      } else {
-        setPasteError('Failed to read from clipboard. Try pasting manually below.')
-      }
+      setPasteError(
+        err instanceof Error && err.name === 'NotAllowedError'
+          ? 'Permission denied. Please allow clipboard access.'
+          : 'Failed to read from clipboard. Try pasting manually below.'
+      )
+    } finally {
       setIsPasting(false)
     }
   }
 
   const handleRetry = (itemId: string) => {
-    setQueue(prev => ({
-      ...prev,
-      items: prev.items.map(i =>
-        i.id === itemId ? { ...i, status: 'pending', error: null } : i
-      ),
-    }))
+    updateQueueItem(itemId, { status: 'pending', error: null })
   }
 
   const handleClearCompleted = () => {
@@ -309,6 +164,7 @@ function App() {
   }
 
   const handleRemoveItem = (itemId: string) => {
+    stopJob(itemId)
     setQueue(prev => ({
       ...prev,
       items: prev.items.filter(i => i.id !== itemId),

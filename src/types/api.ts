@@ -27,6 +27,29 @@ export interface DownloadResponse {
   isRetrying?: boolean;
 }
 
+export interface JobStartResponse {
+  jobId: string;
+  maxAttempts: number;
+  success?: false;
+  error?: string;
+  errorType?: ErrorType;
+  suggestion?: string;
+}
+
+export interface JobStatusResponse {
+  status: 'processing' | 'completed' | 'failed';
+  attempt?: number;
+  maxAttempts?: number;
+  downloadUrl?: string;
+  quality?: 'hd' | 'standard';
+  filename?: string;
+  author?: string;
+  description?: string;
+  error?: string;
+  errorType?: ErrorType;
+  suggestion?: string;
+}
+
 export interface HealthResponse {
   status: string;
 }

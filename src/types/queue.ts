@@ -16,6 +16,8 @@ export interface QueueItem {
   error: string | null
   suggestion?: string
   retryAttempt: number | null
+  maxAttempts?: number
+  jobId?: string
   addedAt: number
   metadata?: QueueItemMetadata
 }

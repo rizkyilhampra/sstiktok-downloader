@@ -1,13 +1,35 @@
 import { Loader2, CheckCircle2, AlertCircle, Trash2, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
-import type { QueueItem } from '@/types/queue'
+import type { QueueItem, QueueItemStatus } from '@/types/queue'
 
 interface QueueDisplayProps {
   items: QueueItem[]
   onRetry: (itemId: string) => void
   onRemove: (itemId: string) => void
   onClearCompleted: () => void
+}
+
+const DEFAULT_MAX_ATTEMPTS = 5
+
+const STATUS_CARD_CLASS: Record<QueueItemStatus, string> = {
+  completed: 'border-primary/50 bg-primary/10',
+  failed: 'border-destructive/50 bg-destructive/10',
+  processing: 'border-blue-500/50 bg-blue-500/10',
+  pending: 'border-secondary/50 bg-secondary/30',
+}
+
+function StatusIcon({ status }: { status: QueueItemStatus }) {
+  switch (status) {
+    case 'processing':
+      return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+    case 'completed':
+      return <CheckCircle2 className="h-5 w-5 text-primary" />
+    case 'failed':
+      return <AlertCircle className="h-5 w-5 text-destructive" />
+    case 'pending':
+      return <div className="h-5 w-5 rounded-full border-2 border-secondary-foreground/50 border-t-secondary-foreground animate-spin" />
+  }
 }
 
 export function QueueDisplay({
@@ -27,11 +49,11 @@ export function QueueDisplay({
   const failedCount = items.filter(i => i.status === 'failed').length
   const totalCount = items.length
 
-  const getStatusLabel = (status: QueueItem['status'], retryAttempt?: number | null) => {
-    switch (status) {
+  const getStatusLabel = (item: QueueItem) => {
+    switch (item.status) {
       case 'processing':
-        if (retryAttempt && retryAttempt >= 1) {
-          return `Processing (Attempt ${retryAttempt}/10)`
+        if (item.retryAttempt && item.retryAttempt >= 1) {
+          return `Processing (Attempt ${item.retryAttempt}/${item.maxAttempts ?? DEFAULT_MAX_ATTEMPTS})`
         }
         return 'Processing...'
       case 'completed':
@@ -41,14 +63,14 @@ export function QueueDisplay({
       case 'pending':
         return 'Queued'
       default:
-        return status
+        return item.status
     }
   }
 
   const getBackoffDelay = (attemptNumber: number): number => {
     if (attemptNumber === 1) return 0
     const delay = 1000 * Math.pow(2, attemptNumber - 2)
-    return Math.min(delay, 60000) // Cap at 60 seconds
+    return Math.min(delay, 60000)
   }
 
   const getEstimatedWaitTime = (attemptNumber?: number | null): string => {
@@ -86,34 +108,15 @@ export function QueueDisplay({
         {items.map((item, index) => (
           <div
             key={item.id}
-            className={`p-4 border rounded-lg transition-colors ${
-              item.status === 'completed'
-                ? 'border-primary/50 bg-primary/10'
-                : item.status === 'failed'
-                  ? 'border-destructive/50 bg-destructive/10'
-                  : item.status === 'processing'
-                    ? 'border-blue-500/50 bg-blue-500/10'
-                    : 'border-secondary/50 bg-secondary/30'
-            }`}
+            className={`p-4 border rounded-lg transition-colors ${STATUS_CARD_CLASS[item.status]}`}
             role="article"
-            aria-label={`Item ${index + 1}: ${getStatusLabel(item.status, item.retryAttempt)}`}
-            title={item.status === 'processing' && item.retryAttempt && item.retryAttempt > 1 ? `Currently on attempt ${item.retryAttempt}/10. Using exponential backoff retry strategy.` : undefined}
+            aria-label={`Item ${index + 1}: ${getStatusLabel(item)}`}
+            title={item.status === 'processing' && item.retryAttempt && item.retryAttempt > 1 ? `Currently on attempt ${item.retryAttempt}/${item.maxAttempts ?? DEFAULT_MAX_ATTEMPTS}. Using exponential backoff retry strategy.` : undefined}
           >
             <div className="flex items-start gap-3">
               {/* Status Icon */}
               <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
-                {item.status === 'processing' && (
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-                )}
-                {item.status === 'completed' && (
-                  <CheckCircle2 className="h-5 w-5 text-primary" />
-                )}
-                {item.status === 'failed' && (
-                  <AlertCircle className="h-5 w-5 text-destructive" />
-                )}
-                {item.status === 'pending' && (
-                  <div className="h-5 w-5 rounded-full border-2 border-secondary-foreground/50 border-t-secondary-foreground animate-spin" />
-                )}
+                <StatusIcon status={item.status} />
               </div>
 
               {/* Content */}
@@ -123,7 +126,7 @@ export function QueueDisplay({
                     #{index + 1}
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    {getStatusLabel(item.status, item.retryAttempt)}
+                    {getStatusLabel(item)}
                     {item.status === 'processing' && getEstimatedWaitTime(item.retryAttempt)}
                   </div>
                 </div>

@@ -15,6 +15,38 @@ const isProduction = process.env.NODE_ENV === 'production';
 // Store active SSE connections
 const sseConnections = new Map();
 
+const jobs = new Map();
+const JOB_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_MAX_ATTEMPTS = 5;
+
+function scheduleJobCleanup(jobId) {
+  setTimeout(() => jobs.delete(jobId), JOB_TTL_MS).unref?.();
+}
+
+// Allowlist for /api/proxy-download — without this the endpoint is an open SSRF gateway.
+const CDN_HOST_SUFFIXES = [
+  'tiktokcdn.com',
+  'tiktokcdn-us.com',
+  'tiktokcdn-eu.com',
+  'muscdn.com',
+  'byteoversea.com',
+  'tiktokv.com',
+];
+
+function isAllowedDownloadUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+  const host = parsed.hostname.toLowerCase();
+  return CDN_HOST_SUFFIXES.some(
+    (suffix) => host === suffix || host.endsWith(`.${suffix}`)
+  );
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -38,7 +70,7 @@ function calculateBackoffDelay(attempt, baseDelay = 1000, maxDelay = 60000) {
 }
 
 // Helper function for retry mechanism with exponential backoff
-async function retryWithBackoff(operation, maxAttempts = 10, onAttempt = null) {
+async function retryWithBackoff(operation, maxAttempts = DEFAULT_MAX_ATTEMPTS, onAttempt = null) {
   let lastError;
   const baseDelay = 1000; // 1 second base delay
   const maxDelay = 60000; // 60 second max delay cap
@@ -420,190 +452,239 @@ function sendProgress(requestId, data) {
   }
 }
 
-// API endpoint to download TikTok video
-app.post('/api/download', async (req, res) => {
+async function runDownloadJob(jobId, url) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+
+  sendProgress(jobId, {
+    type: 'status',
+    status: 'processing',
+    attempt: 1,
+    maxAttempts: DEFAULT_MAX_ATTEMPTS,
+  });
+
   try {
-    const { url, requestId } = req.body;
+    const { result, attempt, retried } = await retryWithBackoff(
+      async () => {
+        const downloadData = await getHDDownloadData(url);
+        console.log(`Download type: ${downloadData.type}`);
 
-    if (!url) {
-      return res.status(400).json({
-        success: false,
-        error: 'TikTok URL is required',
-        errorType: 'INVALID_INPUT'
-      });
-    }
+        if (downloadData.type !== 'hd') {
+          throw new Error('No HD download available');
+        }
 
-    // Validate TikTok URL
-    if (!url.includes('tiktok.com')) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid TikTok URL',
-        errorType: 'INVALID_URL',
-        suggestion: 'Please enter a valid TikTok URL (e.g., https://www.tiktok.com/@user/video/123...)'
-      });
-    }
-
-    console.log('Processing TikTok URL:', url);
-
-    // Send initial processing status
-    if (requestId) {
-      sendProgress(requestId, {
-        type: 'status',
-        status: 'processing',
-        attempt: 1,
-        maxAttempts: 10
-      });
-    }
-
-    // Wrap entire download pipeline with retry logic
-    const { result, attempt, retried } = await retryWithBackoff(async () => {
-      // Step 1: Get download data (HD or standard)
-      const downloadData = await getHDDownloadData(url);
-      console.log(`Download type: ${downloadData.type}`);
-
-      let downloadUrl;
-
-      if (downloadData.type === 'hd') {
-        // Step 2: Get hx-redirect URL for HD
-        const hxRedirectUrl = await getHxRedirectUrl(downloadData.directUrl, downloadData.ttValue);
+        const hxRedirectUrl = await getHxRedirectUrl(
+          downloadData.directUrl,
+          downloadData.ttValue
+        );
         console.log('Got hx-redirect URL:', hxRedirectUrl);
 
-        // Step 3: Get final download URL
-        downloadUrl = await getFinalDownloadUrl(hxRedirectUrl, 'hd');
-      } else {
-        throw new Error('No HD download available');
+        const downloadUrl = await getFinalDownloadUrl(hxRedirectUrl, 'hd');
+        console.log('Final download URL obtained');
 
-        // Standard quality: direct to final URL
-        // downloadUrl = await getFinalDownloadUrl(downloadData.downloadLink, 'standard');
-      }
-
-      console.log('Final download URL obtained');
-
-      // Generate filename from author
-      const filename = await createFilename(downloadData.author, url);
-      console.log('Generated filename:', filename);
-
-      return {
-        downloadUrl,
-        quality: downloadData.type,
-        filename,
-        author: downloadData.author,
-        description: downloadData.description
-      };
-    }, 10, (currentAttempt, maxAttempts) => {
-      // Send progress update via SSE
-      if (requestId) {
+        return {
+          downloadUrl,
+          quality: downloadData.type,
+          author: downloadData.author,
+          description: downloadData.description,
+        };
+      },
+      DEFAULT_MAX_ATTEMPTS,
+      (currentAttempt) => {
+        job.attempt = currentAttempt;
         const delay = calculateBackoffDelay(currentAttempt);
-        sendProgress(requestId, {
+        sendProgress(jobId, {
           type: 'retry',
           attempt: currentAttempt,
-          maxAttempts,
+          maxAttempts: DEFAULT_MAX_ATTEMPTS,
           delay,
-          message: currentAttempt === 1
-            ? 'Starting download...'
-            : `Retry attempt ${currentAttempt}/${maxAttempts} (waiting ${(delay / 1000).toFixed(1)}s)`
+          message:
+            currentAttempt === 1
+              ? 'Starting download...'
+              : `Retry attempt ${currentAttempt}/${DEFAULT_MAX_ATTEMPTS} (waiting ${(delay / 1000).toFixed(1)}s)`,
         });
       }
-    });
+    );
 
-    // Send success event via SSE
-    if (requestId) {
-      sendProgress(requestId, {
-        type: 'success',
-        attempt,
-        retried
-      });
-      // Close SSE connection
-      const connection = sseConnections.get(requestId);
-      if (connection) {
-        connection.end();
-        sseConnections.delete(requestId);
-      }
-    }
+    const filename = await createFilename(result.author, url);
+    console.log('Generated filename:', filename);
 
-    res.json({
-      success: true,
+    Object.assign(job, {
+      status: 'completed',
+      attempt,
+      retried,
+      finishedAt: Date.now(),
       downloadUrl: result.downloadUrl,
       quality: result.quality,
-      filename: result.filename,
+      filename,
       author: result.author,
       description: result.description,
-      retryAttempt: attempt,
-      isRetrying: retried
     });
 
+    sendProgress(jobId, { type: 'success', attempt, retried });
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('Job error:', error.message);
     const errorInfo = getErrorResponse(error);
-
-    // Send error event via SSE
-    if (requestId) {
-      sendProgress(requestId, {
-        type: 'error',
-        error: errorInfo.message,
-        errorType: errorInfo.errorType,
-        suggestion: errorInfo.suggestion
-      });
-      // Close SSE connection
-      const connection = sseConnections.get(requestId);
-      if (connection) {
-        connection.end();
-        sseConnections.delete(requestId);
-      }
-    }
-
-    res.status(500).json({
-      success: false,
+    Object.assign(job, {
+      status: 'failed',
+      finishedAt: Date.now(),
       error: errorInfo.message,
       errorType: errorInfo.errorType,
       suggestion: errorInfo.suggestion,
-      details: 'All 10 retry attempts failed. Please try again later.',
-      retryAttempt: 10,
-      isRetrying: true
+    });
+    sendProgress(jobId, {
+      type: 'error',
+      error: errorInfo.message,
+      errorType: errorInfo.errorType,
+      suggestion: errorInfo.suggestion,
+    });
+  } finally {
+    const connection = sseConnections.get(jobId);
+    if (connection) {
+      connection.end();
+      sseConnections.delete(jobId);
+    }
+    scheduleJobCleanup(jobId);
+  }
+}
+
+app.post('/api/download', (req, res) => {
+  const { url, requestId } = req.body;
+
+  if (!url) {
+    return res.status(400).json({
+      success: false,
+      error: 'TikTok URL is required',
+      errorType: 'INVALID_INPUT',
     });
   }
+
+  if (!url.includes('tiktok.com')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid TikTok URL',
+      errorType: 'INVALID_URL',
+      suggestion:
+        'Please enter a valid TikTok URL (e.g., https://www.tiktok.com/@user/video/123...)',
+    });
+  }
+
+  const jobId =
+    requestId ||
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  if (jobs.has(jobId)) {
+    return res.json({ jobId, maxAttempts: DEFAULT_MAX_ATTEMPTS });
+  }
+
+  jobs.set(jobId, {
+    id: jobId,
+    status: 'processing',
+    attempt: 1,
+    maxAttempts: DEFAULT_MAX_ATTEMPTS,
+    createdAt: Date.now(),
+    finishedAt: null,
+  });
+
+  console.log('Starting job', jobId, 'for URL:', url);
+  runDownloadJob(jobId, url).catch((err) => {
+    console.error('Unhandled job error:', err);
+  });
+
+  res.json({ jobId, maxAttempts: DEFAULT_MAX_ATTEMPTS });
+});
+
+app.get('/api/jobs/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found or expired' });
+  }
+  res.json(job);
 });
 
 // Proxy download endpoint
 app.get('/api/proxy-download', async (req, res) => {
-  try {
-    const { url, filename } = req.query;
+  const { url, filename } = req.query;
 
-    if (!url) {
-      return res.status(400).json({ error: 'Download URL is required' });
-    }
+  if (!url) {
+    return res.status(400).json({ error: 'Download URL is required' });
+  }
 
-    const finalFilename = filename || 'tiktok-video.mp4';
-    console.log('Proxying download from:', url);
-    console.log('Using filename:', finalFilename);
-
-    // Fetch the video from the external URL
-    const response = await axios.get(url, {
-      responseType: 'stream',
-      headers: {
-        'Referer': 'https://ssstik.io/',
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
-      }
-    });
-
-    // Set headers to force download
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', `attachment; filename="${finalFilename}"`);
-
-    // Copy content-length if available
-    if (response.headers['content-length']) {
-      res.setHeader('Content-Length', response.headers['content-length']);
-    }
-
-    // Pipe the video stream to the response
-    response.data.pipe(res);
-  } catch (error) {
-    console.error('Error proxying download:', error.message);
-    res.status(500).json({
-      error: 'Failed to download video',
-      message: error.message
+  if (!isAllowedDownloadUrl(url)) {
+    return res.status(400).json({
+      error: 'Download URL host is not on the CDN allowlist',
     });
   }
+
+  const finalFilename = filename || 'tiktok-video.mp4';
+  console.log('Proxying download from:', url);
+  console.log('Using filename:', finalFilename);
+
+  const upstreamHeaders = {
+    Referer: 'https://ssstik.io/',
+    'User-Agent':
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+  };
+  if (req.headers.range) {
+    upstreamHeaders.Range = req.headers.range;
+  }
+
+  let upstream;
+  try {
+    upstream = await axios.get(url, {
+      responseType: 'stream',
+      timeout: 30000,
+      headers: upstreamHeaders,
+      validateStatus: (status) => status >= 200 && status < 400,
+    });
+  } catch (error) {
+    console.error('Error proxying download:', error.message);
+    return res.status(502).json({
+      error: 'Failed to download video',
+      message: error.message,
+    });
+  }
+
+  const stream = upstream.data;
+
+  // Mid-stream upstream errors and client-disconnect cleanup. Without these
+  // a broken upstream silently truncates the file and a closed client socket
+  // leaves the upstream draining in the background.
+  const cleanup = () => {
+    if (!stream.destroyed) stream.destroy();
+  };
+  stream.on('error', (err) => {
+    console.error('upstream stream error:', err.message);
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'Upstream stream error', message: err.message });
+    } else {
+      res.destroy(err);
+    }
+  });
+  res.on('error', (err) => {
+    console.error('response stream error:', err.message);
+    cleanup();
+  });
+  req.on('close', cleanup);
+
+  res.status(upstream.status);
+  res.setHeader(
+    'Content-Type',
+    upstream.headers['content-type'] || 'video/mp4'
+  );
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${finalFilename}"`
+  );
+  res.setHeader('Accept-Ranges', upstream.headers['accept-ranges'] || 'bytes');
+  if (upstream.headers['content-length']) {
+    res.setHeader('Content-Length', upstream.headers['content-length']);
+  }
+  if (upstream.headers['content-range']) {
+    res.setHeader('Content-Range', upstream.headers['content-range']);
+  }
+
+  stream.pipe(res);
 });
 
 // Health check endpoint
