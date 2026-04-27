@@ -23,29 +23,6 @@ function scheduleJobCleanup(jobId) {
   setTimeout(() => jobs.delete(jobId), JOB_TTL_MS).unref?.();
 }
 
-// Allowlist for /api/proxy-download — without this the endpoint is an open SSRF gateway.
-const CDN_HOST_SUFFIXES = [
-  'tiktokcdn.com',
-  'tiktokcdn-us.com',
-  'tiktokcdn-eu.com',
-  'muscdn.com',
-  'byteoversea.com',
-  'tiktokv.com',
-];
-
-function isAllowedDownloadUrl(rawUrl) {
-  let parsed;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
-  const host = parsed.hostname.toLowerCase();
-  return CDN_HOST_SUFFIXES.some(
-    (suffix) => host === suffix || host.endsWith(`.${suffix}`)
-  );
-}
 
 // Middleware
 app.use(cors());
@@ -602,21 +579,21 @@ app.get('/api/jobs/:jobId', (req, res) => {
   res.json(job);
 });
 
-// Proxy download endpoint
+// Proxy download endpoint — URL is resolved from the job store, never taken from the query string.
 app.get('/api/proxy-download', async (req, res) => {
-  const { url, filename } = req.query;
+  const { jobId, filename } = req.query;
 
-  if (!url) {
-    return res.status(400).json({ error: 'Download URL is required' });
+  if (!jobId) {
+    return res.status(400).json({ error: 'jobId is required' });
   }
 
-  if (!isAllowedDownloadUrl(url)) {
-    return res.status(400).json({
-      error: 'Download URL host is not on the CDN allowlist',
-    });
+  const job = jobs.get(jobId);
+  if (!job || job.status !== 'completed' || !job.downloadUrl) {
+    return res.status(400).json({ error: 'Job not found, not completed, or has no download URL' });
   }
 
-  const finalFilename = filename || 'tiktok-video.mp4';
+  const url = job.downloadUrl;
+  const finalFilename = filename || job.filename || 'tiktok-video.mp4';
   console.log('Proxying download from:', url);
   console.log('Using filename:', finalFilename);
 

@@ -149,7 +149,7 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
             })
 
             const filename = data.filename || 'tiktok-video.mp4'
-            const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(data.downloadUrl)}&filename=${encodeURIComponent(filename)}`
+            const proxyUrl = `/api/proxy-download?jobId=${encodeURIComponent(jobId)}&filename=${encodeURIComponent(filename)}`
             const a = document.createElement('a')
             a.href = proxyUrl
             a.download = filename
