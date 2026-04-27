@@ -136,6 +136,7 @@ Builds the frontend and serves app + API on port 3000.
 * **Retry failed** – Click retry button on failed items to reprocess
 * **Remove items** – Delete videos from queue with confirmation
 * **Clear completed** – Bulk remove all successfully downloaded items
+* **Auto-hide** – Completed items disappear automatically after 10 seconds; URL input is cleared
 
 ### Features
 
@@ -146,6 +147,8 @@ Builds the frontend and serves app + API on port 3000.
 * **Real-time validation** – URL format checked before queue addition
 
 **Supported URL formats:**
+
+Any URL containing `tiktok.com` is accepted. Common formats:
 
 ```
 https://www.tiktok.com/@username/video/123456789
@@ -158,9 +161,9 @@ https://vt.tiktok.com/XXXXXXXXXX
 | Endpoint              | Method | Description                                            |
 | --------------------- | ------ | ------------------------------------------------------ |
 | `/api/download`       | `POST` | Process TikTok URL and return final HD link + filename |
-| `/api/progress/:requestId` | `GET` (SSE) | Stream real-time retry attempt updates         |
-| `/api/proxy-download` | `GET`  | Stream video file to client                            |
-| `/api/health`         | `GET`  | Health check endpoint                                  |
+| `/api/progress/:requestId` | `GET` (SSE) | Stream real-time retry attempt updates (`retry`/`status` events) |
+| `/api/proxy-download` | `GET`  | Stream video file to client (no range-request/resume support)    |
+| `/api/health`         | `GET`  | Health check — returns `{ status: "ok" }`              |
 
 ### Download Flow Details
 
@@ -181,11 +184,19 @@ sstiktok-downloader/
 ├── public/                # Static assets
 ├── src/                   # React + TS source
 │   ├── components/
+│   │   ├── QueueDisplay.tsx
+│   │   └── ui/
+│   ├── types/
+│   │   ├── api.ts
+│   │   └── queue.ts
+│   ├── lib/
+│   │   └── utils.ts
 │   ├── App.tsx
 │   └── main.tsx
 ├── server/                # Express backend
 │   └── index.js
 ├── dist/                  # Production build
+├── components.json        # shadcn/ui config
 ├── Dockerfile
 ├── docker-compose.yml
 ├── vite.config.ts
