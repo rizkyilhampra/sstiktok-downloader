@@ -67,17 +67,9 @@ export function QueueDisplay({
     }
   }
 
-  const getBackoffDelay = (attemptNumber: number): number => {
-    if (attemptNumber === 1) return 0
-    const delay = 1000 * Math.pow(2, attemptNumber - 2)
-    return Math.min(delay, 60000)
-  }
-
-  const getEstimatedWaitTime = (attemptNumber?: number | null): string => {
-    if (!attemptNumber || attemptNumber < 2) return ''
-    const nextDelay = getBackoffDelay(attemptNumber)
-    const seconds = Math.ceil(nextDelay / 1000)
-    return ` (waiting ${seconds}s before next retry)`
+  const getEstimatedWaitTime = (retryDelay?: number): string => {
+    if (!retryDelay || retryDelay < 1000) return ''
+    return ` (waiting ${Math.ceil(retryDelay / 1000)}s before next retry)`
   }
 
   return (
@@ -127,7 +119,7 @@ export function QueueDisplay({
                   </div>
                   <div className="text-sm text-muted-foreground">
                     {getStatusLabel(item)}
-                    {item.status === 'processing' && getEstimatedWaitTime(item.retryAttempt)}
+                    {item.status === 'processing' && getEstimatedWaitTime(item.retryDelay)}
                   </div>
                 </div>
 

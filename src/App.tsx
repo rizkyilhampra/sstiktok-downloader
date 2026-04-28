@@ -17,7 +17,6 @@ function App() {
   const [pasteError, setPasteError] = useState<string | null>(null)
   const [queue, setQueue] = useState<QueueState>({
     items: [],
-    processingId: null,
   })
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const validationTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -111,7 +110,6 @@ function App() {
     processingRef.current = true
     setQueue(prev => ({
       ...prev,
-      processingId: pendingItem.id,
       items: prev.items.map(i =>
         i.id === pendingItem.id ? { ...i, status: 'processing' } : i
       ),

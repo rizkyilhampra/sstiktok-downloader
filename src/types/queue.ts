@@ -16,6 +16,7 @@ export interface QueueItem {
   error: string | null
   suggestion?: string
   retryAttempt: number | null
+  retryDelay?: number
   maxAttempts?: number
   jobId?: string
   addedAt: number
@@ -24,5 +25,4 @@ export interface QueueItem {
 
 export interface QueueState {
   items: QueueItem[]
-  processingId: string | null
 }

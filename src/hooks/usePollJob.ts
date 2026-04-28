@@ -28,14 +28,18 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
       try {
         const data = JSON.parse(event.data)
         if (data.type === 'retry' || data.type === 'status') {
-          setQueue(prev => ({
-            ...prev,
-            items: prev.items.map(i =>
-              i.id === item.id
-                ? { ...i, retryAttempt: data.attempt || null, maxAttempts: data.maxAttempts || i.maxAttempts }
-                : i
-            ),
-          }))
+          setQueue(prev => {
+            const idx = prev.items.findIndex(i => i.id === item.id)
+            if (idx === -1) return prev
+            const cur = prev.items[idx]
+            const nextAttempt = data.attempt || null
+            const nextMax = data.maxAttempts || cur.maxAttempts
+            const nextDelay = data.delay ?? cur.retryDelay
+            if (cur.retryAttempt === nextAttempt && cur.maxAttempts === nextMax && cur.retryDelay === nextDelay) return prev
+            const items = prev.items.slice()
+            items[idx] = { ...cur, retryAttempt: nextAttempt, maxAttempts: nextMax, retryDelay: nextDelay }
+            return { ...prev, items }
+          })
         }
       } catch (e) {
         console.error('Failed to parse SSE message:', e)

@@ -551,6 +551,7 @@ app.post('/api/download', (req, res) => {
     `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   if (jobs.has(jobId)) {
+    console.log('Idempotent reuse of existing job', jobId);
     return res.json({ jobId, maxAttempts: DEFAULT_MAX_ATTEMPTS });
   }
 
@@ -579,7 +580,7 @@ app.get('/api/jobs/:jobId', (req, res) => {
   res.json(job);
 });
 
-// Proxy download endpoint — URL is resolved from the job store, never taken from the query string.
+// Proxy download endpoint — URL comes from the server-side job store to prevent SSRF; clients supply only a jobId.
 app.get('/api/proxy-download', async (req, res) => {
   const { jobId, filename } = req.query;
 
