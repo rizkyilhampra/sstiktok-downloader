@@ -224,24 +224,10 @@ async function getHDDownloadData(tiktokUrl) {
     const ttValue = ttInput.attr('value');
 
     if (!dataDirectUrl || !ttValue) {
-      // Fallback to standard download if HD not available
-      const downloadLink = $('a.without_watermark').attr('href');
-
-      if (!downloadLink) {
-        throw new Error('Could not find any download link in response');
-      }
-
-      return {
-        type: 'standard',
-        downloadLink,
-        ttValue,
-        author,
-        description
-      };
+      throw new Error('HD download not available for this video');
     }
 
     return {
-      type: 'hd',
       directUrl: dataDirectUrl,
       ttValue,
       author,
@@ -298,30 +284,15 @@ async function getHxRedirectUrl(directUrl, ttValue) {
 }
 
 // Step 3: Get final video download URL
-async function getFinalDownloadUrl(urlOrHash, type = 'hd') {
+async function getFinalDownloadUrl(urlOrHash) {
   try {
-    let targetUrl;
-
-    if (type === 'standard') {
-      // Extract hash from standard download link
-      const hashMatch = urlOrHash.match(/\/ssstik\/([^?]+)/);
-      if (!hashMatch) {
-        throw new Error('Could not extract hash from download link');
-      }
-      targetUrl = `https://tikcdn.io/ssstik/${hashMatch[1]}`;
-    } else {
-      // HD: Decode the base64 encoded URL from hx-redirect
-      // The URL format is: https://tikcdn.io/ssstik/[base64-encoded-video-url]
-      const base64Match = urlOrHash.match(/\/ssstik\/([^?]+)/);
-      if (base64Match) {
-        const decodedUrl = Buffer.from(base64Match[1], 'base64').toString('utf-8');
-        console.log('Decoded video URL:', decodedUrl);
-        targetUrl = decodedUrl;
-      } else {
-        // Fallback to using the URL directly
-        targetUrl = urlOrHash;
-      }
-    }
+    // Decode the base64 encoded URL from hx-redirect
+    // The URL format is: https://tikcdn.io/ssstik/[base64-encoded-video-url]
+    const base64Match = urlOrHash.match(/\/ssstik\/([^?]+)/);
+    const targetUrl = base64Match
+      ? Buffer.from(base64Match[1], 'base64').toString('utf-8')
+      : urlOrHash;
+    console.log('Decoded video URL:', targetUrl);
 
     const response = await axios.get(targetUrl, {
       maxRedirects: 5,
@@ -371,7 +342,7 @@ function getErrorResponse(error) {
   }
 
   // Video not found or private
-  if (message.includes('Could not find') || message.includes('download link') || message.includes('No HD download')) {
+  if (message.includes('Could not find') || message.includes('download link') || message.includes('HD download not available')) {
     return {
       errorType: 'VIDEO_NOT_FOUND',
       message: 'Could not process this video',
@@ -444,11 +415,6 @@ async function runDownloadJob(jobId, url) {
     const { result, attempt, retried } = await retryWithBackoff(
       async () => {
         const downloadData = await getHDDownloadData(url);
-        console.log(`Download type: ${downloadData.type}`);
-
-        if (downloadData.type !== 'hd') {
-          throw new Error('No HD download available');
-        }
 
         const hxRedirectUrl = await getHxRedirectUrl(
           downloadData.directUrl,
@@ -456,12 +422,12 @@ async function runDownloadJob(jobId, url) {
         );
         console.log('Got hx-redirect URL:', hxRedirectUrl);
 
-        const downloadUrl = await getFinalDownloadUrl(hxRedirectUrl, 'hd');
+        const downloadUrl = await getFinalDownloadUrl(hxRedirectUrl);
         console.log('Final download URL obtained');
 
         return {
           downloadUrl,
-          quality: downloadData.type,
+          quality: 'hd',
           author: downloadData.author,
           description: downloadData.description,
         };
