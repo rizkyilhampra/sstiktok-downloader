@@ -21,9 +21,10 @@ The backend resolves the final MP4 URL and proxies it directly to the browser wi
 * ❤️ **Health checks** – `/api/health` endpoint + Docker healthcheck
 * 📥 **Download queue system** – Add multiple URLs, processed sequentially
 * 🎬 **Video metadata display** – Shows author and video description
-* 🔄 **Retry mechanism** – Exponential backoff with up to 10 retry attempts
-* 👁️ **Real-time retry visibility** – See live attempt progress with wait times via Server-Sent Events
-* ⏱️ **Request timeout** – 5-minute client-side timeout for hung requests
+* 🔄 **Retry mechanism** – Exponential backoff with up to 5 retry attempts
+* 👁️ **Real-time retry visibility** – Live attempt progress with wait times via SSE + polling
+* ⏱️ **Request timeout** – 2-minute client-side poll ceiling for hung jobs
+* 📡 **Range request support** – Proxy streams range headers for resume/seek support
 * ✅ **URL validation** – Client-side format validation with real-time feedback
 
 ## 🧠 How It Works
@@ -142,8 +143,8 @@ Builds the frontend and serves app + API on port 3000.
 
 * **Metadata display** – Each queue item shows video author and description
 * **Error suggestions** – Failed downloads show actionable error messages
-* **Retry attempts** – Automatic retries (up to 10) with exponential backoff
-* **Request timeout** – 5-minute timeout prevents hung requests
+* **Retry attempts** – Automatic retries (up to 5) with exponential backoff
+* **Request timeout** – 2-minute poll ceiling prevents hung jobs
 * **Real-time validation** – URL format checked before queue addition
 
 **Supported URL formats:**
@@ -160,21 +161,23 @@ https://vt.tiktok.com/XXXXXXXXXX
 
 | Endpoint              | Method | Description                                            |
 | --------------------- | ------ | ------------------------------------------------------ |
-| `/api/download`       | `POST` | Process TikTok URL and return final HD link + filename |
+| `/api/download`       | `POST`      | Enqueue a TikTok URL; returns `{ jobId, maxAttempts }` immediately |
+| `/api/jobs/:jobId`    | `GET`       | Poll job status (`processing` / `completed` / `failed`)            |
 | `/api/progress/:requestId` | `GET` (SSE) | Stream real-time retry attempt updates (`retry`/`status` events) |
-| `/api/proxy-download` | `GET`  | Stream video file to client (no range-request/resume support)    |
-| `/api/health`         | `GET`  | Health check — returns `{ status: "ok" }`              |
+| `/api/proxy-download` | `GET`       | Stream video file to client; supports range requests               |
+| `/api/health`         | `GET`       | Health check — returns `{ status: "ok" }`                          |
 
 ### Download Flow Details
 
-The `/api/download` endpoint performs the following steps:
+`POST /api/download` returns a `jobId` immediately. The server runs the pipeline in the background:
 
-1. **Scrape ssstik.io** – Fetch video metadata and HD download data
+1. **Scrape ssstik.io** – Fetch video metadata and HD download data; throws if HD is unavailable
 2. **Get hx-redirect URL** – Extract base64-encoded URL from response headers
 3. **Decode base64** – Extract actual TikTok CDN URL (e.g., `https://v16.tokcdn.com/...`)
 4. **Resolve final URL** – Follow redirects to get playable video URL
 5. **Generate filename** – Uses author name, or extracts `@username` from TikTok URL if author name contains only emojis
-6. **Return metadata** – Provides download URL, quality, filename, author, and description
+
+Poll `GET /api/jobs/:jobId` for status. On `completed`, the client fetches `/api/proxy-download?jobId=…` to stream the file.
 
 
 ## 🧱 Project Structure
@@ -186,6 +189,8 @@ sstiktok-downloader/
 │   ├── components/
 │   │   ├── QueueDisplay.tsx
 │   │   └── ui/
+│   ├── hooks/
+│   │   └── usePollJob.ts
 │   ├── types/
 │   │   ├── api.ts
 │   │   └── queue.ts
