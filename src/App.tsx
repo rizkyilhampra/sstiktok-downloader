@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Loader2, Clipboard, AlertCircle } from 'lucide-react'
+import { Loader2, Clipboard } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,8 +14,7 @@ function App() {
   const [url, setUrl] = useState('')
   const [isPasting, setIsPasting] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
-  const [validationError, setValidationError] = useState<string | null>(null)
-  const [pasteError, setPasteError] = useState<string | null>(null)
+
   const [queue, setQueue] = useState<QueueState>({
     items: [],
   })
@@ -78,8 +78,6 @@ function App() {
 
   const handleInputChange = (value: string) => {
     setUrl(value)
-    setValidationError(null)
-    setPasteError(null)
 
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
     if (validationTimerRef.current) clearTimeout(validationTimerRef.current)
@@ -90,13 +88,15 @@ function App() {
     }
 
     const isValidUrl = isTikTokUrl(value) && (value.includes('http://') || value.includes('https://') || value.startsWith('www.'))
-    if (!isValidUrl) setValidationError('Invalid TikTok URL format')
-
     setIsValidating(true)
 
     debounceTimerRef.current = setTimeout(() => {
       setIsValidating(false)
-      if (value.trim() && isValidUrl) addToQueue(value)
+      if (!isValidUrl) {
+        toast.error('Invalid TikTok URL format')
+      } else {
+        addToQueue(value)
+      }
     }, 1500)
   }
 
@@ -122,25 +122,23 @@ function App() {
 
   const handlePasteAndDownload = async () => {
     setIsPasting(true)
-    setPasteError(null)
     try {
       if (!navigator.clipboard?.readText) {
-        setPasteError('Clipboard access not supported in your browser')
+        toast.error('Clipboard access not supported in your browser')
         return
       }
       const text = await navigator.clipboard.readText()
       if (!text.trim()) {
-        setPasteError('Clipboard is empty. Copy a TikTok URL first.')
+        toast.error('Clipboard is empty. Copy a TikTok URL first.')
         return
       }
       if (!isTikTokUrl(text)) {
-        setPasteError("Clipboard doesn't contain a TikTok URL")
+        toast.error("Clipboard doesn't contain a TikTok URL")
         return
       }
       addToQueue(text.trim())
-      setPasteError(null)
     } catch (err) {
-      setPasteError(
+      toast.error(
         err instanceof Error && err.name === 'NotAllowedError'
           ? 'Permission denied. Please allow clipboard access.'
           : 'Failed to read from clipboard. Try pasting manually below.'
@@ -207,13 +205,7 @@ function App() {
                 )}
               </Button>
 
-              {/* Paste Error Message */}
-              {pasteError && (
-                <div className="flex items-center gap-2 p-2 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">
-                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                  <span>{pasteError}</span>
-                </div>
-              )}
+
             </div>
 
             {/* Divider */}
@@ -240,13 +232,8 @@ function App() {
                 aria-describedby="url-helper"
               />
 
-              {/* Validation Error or Helper Text */}
-              {validationError ? (
-                <div className="flex items-center gap-2 p-2 text-sm text-destructive">
-                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                  <span>{validationError}</span>
-                </div>
-              ) : isValidating ? (
+              {/* Validation Loading or Helper Text */}
+              {isValidating ? (
                 <div className="flex items-center gap-2 p-2 text-sm text-muted-foreground animate-pulse">
                   <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
                   <span>Validating...</span>
