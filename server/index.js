@@ -18,6 +18,7 @@ const sseConnections = new Map();
 const jobs = new Map();
 const JOB_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_ATTEMPTS = 5;
+const STEP_TIMEOUT_MS = 15000;
 
 function scheduleJobCleanup(jobId) {
   setTimeout(() => jobs.delete(jobId), JOB_TTL_MS).unref?.();
@@ -36,12 +37,8 @@ if (isProduction) {
 }
 
 // Helper function to calculate exponential backoff delay
-function calculateBackoffDelay(attempt, baseDelay = 1000, maxDelay = 60000) {
-  if (attempt === 1) return 0; // First attempt is immediate
-  // Exponential: 2^(attempt-2) * baseDelay
-  // Attempt 2: 2^0 * 1000 = 1000ms
-  // Attempt 3: 2^1 * 1000 = 2000ms
-  // Attempt 4: 2^2 * 1000 = 4000ms, etc.
+function calculateBackoffDelay(attempt, baseDelay = 2000, maxDelay = 30000) {
+  if (attempt === 1) return 0;
   const delay = baseDelay * Math.pow(2, attempt - 2);
   return Math.min(delay, maxDelay);
 }
@@ -49,14 +46,11 @@ function calculateBackoffDelay(attempt, baseDelay = 1000, maxDelay = 60000) {
 // Helper function for retry mechanism with exponential backoff
 async function retryWithBackoff(operation, maxAttempts = DEFAULT_MAX_ATTEMPTS, onAttempt = null) {
   let lastError;
-  const baseDelay = 1000; // 1 second base delay
-  const maxDelay = 60000; // 60 second max delay cap
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      // Calculate and apply delay before attempt (skip for first attempt)
       if (attempt > 1) {
-        const delay = calculateBackoffDelay(attempt, baseDelay, maxDelay);
+        const delay = calculateBackoffDelay(attempt);
         const delaySeconds = (delay / 1000).toFixed(1);
         console.log(`Retry attempt ${attempt}/${maxAttempts} - waiting ${delaySeconds}s (${delay}ms)...`);
         if (onAttempt) {
@@ -99,7 +93,8 @@ async function extractUsernameFromUrl(url) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
       },
-      maxRedirects: 5
+      maxRedirects: 5,
+      timeout: STEP_TIMEOUT_MS,
     });
 
     const html = response.data;
@@ -205,7 +200,8 @@ async function getHDDownloadData(tiktokUrl) {
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'same-origin',
         'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
-      }
+      },
+      timeout: STEP_TIMEOUT_MS,
     });
 
     const html = response.data;
@@ -267,7 +263,8 @@ async function getHxRedirectUrl(directUrl, ttValue) {
         'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
       },
       maxRedirects: 0,
-      validateStatus: (status) => status >= 200 && status < 400
+      validateStatus: (status) => status >= 200 && status < 400,
+      timeout: STEP_TIMEOUT_MS,
     });
 
     const hxRedirect = response.headers['hx-redirect'];
@@ -296,6 +293,7 @@ async function getFinalDownloadUrl(urlOrHash) {
 
     const response = await axios.get(targetUrl, {
       maxRedirects: 5,
+      timeout: STEP_TIMEOUT_MS,
       headers: {
         'Referer': 'https://ssstik.io/',
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
