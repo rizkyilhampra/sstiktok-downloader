@@ -8,6 +8,7 @@ const POLL_CEILING_MS = 2 * 60 * 1000
 
 export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
   const pollControlsRef = useRef<Map<string, { pollNow: () => void; stop: () => void }>>(new Map())
+  const retryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   // Fires an immediate poll for every in-flight job when the tab returns,
   // so minimize-and-restore feels instant instead of waiting for the next interval.
@@ -28,18 +29,33 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
       try {
         const data = JSON.parse(event.data)
         if (data.type === 'retry' || data.type === 'status') {
-          setQueue(prev => {
-            const idx = prev.items.findIndex(i => i.id === item.id)
-            if (idx === -1) return prev
-            const cur = prev.items[idx]
-            const nextAttempt = data.attempt || null
-            const nextMax = data.maxAttempts || cur.maxAttempts
-            const nextDelay = data.delay ?? cur.retryDelay
-            if (cur.retryAttempt === nextAttempt && cur.maxAttempts === nextMax && cur.retryDelay === nextDelay) return prev
-            const items = prev.items.slice()
-            items[idx] = { ...cur, retryAttempt: nextAttempt, maxAttempts: nextMax, retryDelay: nextDelay }
-            return { ...prev, items }
-          })
+          setQueue(prev => ({
+            ...prev,
+            items: prev.items.map(i =>
+              i.id === item.id
+                ? {
+                    ...i,
+                    retryAttempt: data.attempt || null,
+                    maxAttempts: data.maxAttempts || i.maxAttempts,
+                    retryDelay: data.delay ?? i.retryDelay,
+                  }
+                : i
+            ),
+          }))
+          // Clear retryDelay once the backoff wait period ends so the UI stops
+          // showing "waiting Xs" while the attempt is actively running.
+          if (data.type === 'retry' && typeof data.delay === 'number' && data.delay > 0) {
+            const timerId = setTimeout(() => {
+              retryTimersRef.current.delete(item.id)
+              setQueue(prev => ({
+                ...prev,
+                items: prev.items.map(i =>
+                  i.id === item.id && i.retryDelay === data.delay ? { ...i, retryDelay: undefined } : i
+                ),
+              }))
+            }, data.delay)
+            retryTimersRef.current.set(item.id, timerId)
+          }
         }
       } catch (e) {
         console.error('Failed to parse SSE message:', e)
@@ -89,6 +105,11 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
       let inFlight = false
 
       const stop = () => {
+        const pending = retryTimersRef.current.get(item.id)
+        if (pending !== undefined) {
+          clearTimeout(pending)
+          retryTimersRef.current.delete(item.id)
+        }
         if (interval !== null) {
           clearInterval(interval)
           interval = null
@@ -117,15 +138,12 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
           if (data.status === 'processing') {
             const nextAttempt = data.attempt ?? null
             const nextMax = data.maxAttempts
-            setQueue(prev => {
-              const idx = prev.items.findIndex(i => i.id === item.id)
-              if (idx === -1) return prev
-              const cur = prev.items[idx]
-              if (cur.retryAttempt === nextAttempt && cur.maxAttempts === nextMax) return prev
-              const items = prev.items.slice()
-              items[idx] = { ...cur, retryAttempt: nextAttempt, maxAttempts: nextMax }
-              return { ...prev, items }
-            })
+            setQueue(prev => ({
+              ...prev,
+              items: prev.items.map(i =>
+                i.id === item.id ? { ...i, retryAttempt: nextAttempt, maxAttempts: nextMax } : i
+              ),
+            }))
             if (Date.now() - startedAt > POLL_CEILING_MS) {
               failJob('Timed out waiting for the server to finish processing', 'Try again in a moment.')
               stop()
