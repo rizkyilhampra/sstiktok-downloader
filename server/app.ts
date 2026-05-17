@@ -3,9 +3,9 @@ import cors from 'cors';
 import path from 'path';
 import downloadRouter from './routes/download.js';
 import jobsRouter from './routes/jobs.js';
-import progressRouter from './routes/progress.js';
 import proxyDownloadRouter from './routes/proxyDownload.js';
 import healthRouter from './routes/health.js';
+import configRouter from './routes/config.js';
 
 export function createApp(isProduction: boolean): express.Application {
   const app = express();
@@ -23,9 +23,9 @@ export function createApp(isProduction: boolean): express.Application {
 
   app.use('/api/download', downloadRouter);
   app.use('/api/jobs', jobsRouter);
-  app.use('/api/progress', progressRouter);
   app.use('/api/proxy-download', proxyDownloadRouter);
   app.use('/api/health', healthRouter);
+  app.use('/api/config', configRouter);
 
   if (isProduction) {
     app.get('*path', (_req, res) => {

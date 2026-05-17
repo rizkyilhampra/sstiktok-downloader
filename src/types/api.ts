@@ -37,9 +37,10 @@ export interface JobStartResponse {
 }
 
 export interface JobStatusResponse {
-  status: 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed';
   attempt?: number;
   maxAttempts?: number;
+  retryDelay?: number;
   downloadUrl?: string;
   quality?: 'hd' | 'standard';
   filename?: string;
@@ -52,4 +53,9 @@ export interface JobStatusResponse {
 
 export interface HealthResponse {
   status: string;
+}
+
+export interface ClientConfigResponse {
+  maxClientConcurrentDownloads: number;
+  maxAttempts: number;
 }

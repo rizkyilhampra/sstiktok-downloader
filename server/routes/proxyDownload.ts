@@ -14,7 +14,14 @@ router.get('/', async (req: Request, res: Response) => {
     return;
   }
 
-  const job = getJob(jobId);
+  let job;
+  try {
+    job = await getJob(jobId);
+  } catch (error) {
+    console.error('Failed to read job for proxy download:', (error as Error).message);
+    res.status(503).json({ error: 'Job store is unavailable' });
+    return;
+  }
   if (!job || job.status !== 'completed' || !job.downloadUrl) {
     res.status(400).json({ error: 'Job not found, not completed, or has no download URL' });
     return;

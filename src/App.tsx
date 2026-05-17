@@ -7,22 +7,51 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { QueueDisplay } from '@/components/QueueDisplay'
 import type { QueueItem, QueueState } from '@/types/queue'
 import { usePollJob } from '@/hooks/usePollJob'
+import type { ClientConfigResponse } from '@/types/api'
 
 const isTikTokUrl = (url: string) => url.includes('tiktok.com')
+const DEFAULT_MAX_CONCURRENT_DOWNLOADS = 3
+const DEFAULT_MAX_ATTEMPTS = 5
 
 function App() {
   const [url, setUrl] = useState('')
   const [isPasting, setIsPasting] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
+  const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(DEFAULT_MAX_CONCURRENT_DOWNLOADS)
+  const [maxAttempts, setMaxAttempts] = useState(DEFAULT_MAX_ATTEMPTS)
 
   const [queue, setQueue] = useState<QueueState>({
     items: [],
   })
+  const [schedulerTick, setSchedulerTick] = useState(0)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const validationTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const processingRef = useRef<boolean>(false)
+  const processingIdsRef = useRef<Set<string>>(new Set())
 
   const { processQueueItem, stopJob } = usePollJob(setQueue)
+
+  useEffect(() => {
+    let cancelled = false
+
+    void fetch('/api/config')
+      .then(async (res) => {
+        if (!res.ok) return
+        const data = await res.json() as ClientConfigResponse
+        if (!cancelled && Number.isInteger(data.maxClientConcurrentDownloads) && data.maxClientConcurrentDownloads > 0) {
+          setMaxConcurrentDownloads(data.maxClientConcurrentDownloads)
+        }
+        if (!cancelled && Number.isInteger(data.maxAttempts) && data.maxAttempts > 0) {
+          setMaxAttempts(data.maxAttempts)
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load client config:', err)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const updateQueueItem = useCallback((id: string, patch: Partial<QueueItem>) => {
     setQueue(prev => ({
@@ -67,6 +96,7 @@ function App() {
       result: null,
       error: null,
       retryAttempt: null,
+      maxAttempts,
       addedAt: Date.now(),
     }
 
@@ -74,7 +104,7 @@ function App() {
       ...prev,
       items: [...prev.items, newItem],
     }))
-  }, [])
+  }, [maxAttempts])
 
   const handleInputChange = (value: string) => {
     setUrl(value)
@@ -100,25 +130,32 @@ function App() {
     }, 1500)
   }
 
-  // Process next pending item in queue
   useEffect(() => {
-    if (processingRef.current) return
+    const availableSlots = maxConcurrentDownloads - processingIdsRef.current.size
+    if (availableSlots <= 0) return
 
-    const pendingItem = queue.items.find(item => item.status === 'pending')
-    if (!pendingItem) return
+    const pendingItems = queue.items
+      .filter(item => item.status === 'pending' && !processingIdsRef.current.has(item.id))
+      .slice(0, availableSlots)
+    if (pendingItems.length === 0) return
 
-    processingRef.current = true
+    pendingItems.forEach(item => processingIdsRef.current.add(item.id))
     setQueue(prev => ({
       ...prev,
       items: prev.items.map(i =>
-        i.id === pendingItem.id ? { ...i, status: 'processing' } : i
+        processingIdsRef.current.has(i.id) && i.status === 'pending'
+          ? { ...i, status: 'processing' }
+          : i
       ),
     }))
 
-    processQueueItem(pendingItem).finally(() => {
-      processingRef.current = false
+    pendingItems.forEach(item => {
+      processQueueItem(item).finally(() => {
+        processingIdsRef.current.delete(item.id)
+        setSchedulerTick(tick => tick + 1)
+      })
     })
-  }, [queue.items, processQueueItem])
+  }, [queue.items, processQueueItem, schedulerTick, maxConcurrentDownloads])
 
   const handlePasteAndDownload = async () => {
     setIsPasting(true)
@@ -149,6 +186,8 @@ function App() {
   }
 
   const handleRetry = (itemId: string) => {
+    processingIdsRef.current.delete(itemId)
+    setSchedulerTick(tick => tick + 1)
     updateQueueItem(itemId, { status: 'pending', error: null })
   }
 
@@ -161,6 +200,8 @@ function App() {
 
   const handleRemoveItem = (itemId: string) => {
     stopJob(itemId)
+    processingIdsRef.current.delete(itemId)
+    setSchedulerTick(tick => tick + 1)
     setQueue(prev => ({
       ...prev,
       items: prev.items.filter(i => i.id !== itemId),
@@ -240,7 +281,7 @@ function App() {
                 </div>
               ) : (
                 <p id="url-helper" className="text-sm text-muted-foreground">
-                  Videos are added to queue automatically and processed one at a time
+                  Videos are added to queue automatically and processed up to {maxConcurrentDownloads} at a time
                 </p>
               )}
             </div>

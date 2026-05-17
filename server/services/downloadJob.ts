@@ -1,20 +1,16 @@
-import { getJob, updateJob, scheduleJobCleanup, DEFAULT_MAX_ATTEMPTS } from './jobStore.js';
-import { sendProgress, getSse, removeSse } from './sseStore.js';
+import { updateJob, failJob } from './jobStore.js';
+import { config } from '../config.js';
 import { getHDDownloadData, getHxRedirectUrl, getFinalDownloadUrl } from './tiktokApi.js';
 import { retryWithBackoff } from '../utils/retry.js';
 import { createFilename } from '../utils/filename.js';
-import { getErrorResponse } from '../utils/errors.js';
 
 export async function runDownloadJob(jobId: string, url: string): Promise<void> {
-  const job = getJob(jobId);
-  if (!job) return;
-
-  sendProgress(jobId, {
-    type: 'status',
+  const jobStarted = await updateJob(jobId, {
     status: 'processing',
     attempt: 1,
-    maxAttempts: DEFAULT_MAX_ATTEMPTS,
+    retryDelay: undefined,
   });
+  if (!jobStarted) return;
 
   try {
     const { result, attempt, retried } = await retryWithBackoff(
@@ -34,57 +30,30 @@ export async function runDownloadJob(jobId: string, url: string): Promise<void> 
           description: downloadData.description,
         };
       },
-      DEFAULT_MAX_ATTEMPTS,
-      (currentAttempt, delay) => {
-        updateJob(jobId, { attempt: currentAttempt });
-        sendProgress(jobId, {
-          type: 'retry',
-          attempt: currentAttempt,
-          maxAttempts: DEFAULT_MAX_ATTEMPTS,
-          delay,
-          message: `Retry attempt ${currentAttempt}/${DEFAULT_MAX_ATTEMPTS} (waiting ${(delay / 1000).toFixed(1)}s)`,
-        });
+      config.maxAttempts,
+      async (currentAttempt, delay) => {
+        await updateJob(jobId, { attempt: currentAttempt, retryDelay: delay });
       },
+      async () => { await updateJob(jobId, { retryDelay: undefined }); },
     );
 
     const filename = await createFilename(result.author, url);
     console.log('Generated filename:', filename);
 
-    updateJob(jobId, {
+    await updateJob(jobId, {
       status: 'completed',
       attempt,
       retried,
       finishedAt: Date.now(),
+      retryDelay: undefined,
       downloadUrl: result.downloadUrl,
       quality: result.quality,
       filename,
       author: result.author,
       description: result.description,
     });
-
-    sendProgress(jobId, { type: 'success', attempt, retried });
   } catch (error) {
     console.error('Job error:', (error as Error).message);
-    const errorInfo = getErrorResponse(error);
-    updateJob(jobId, {
-      status: 'failed',
-      finishedAt: Date.now(),
-      error: errorInfo.message,
-      errorType: errorInfo.errorType,
-      suggestion: errorInfo.suggestion,
-    });
-    sendProgress(jobId, {
-      type: 'error',
-      error: errorInfo.message,
-      errorType: errorInfo.errorType,
-      suggestion: errorInfo.suggestion,
-    });
-  } finally {
-    const connection = getSse(jobId);
-    if (connection) {
-      connection.end();
-      removeSse(jobId);
-    }
-    scheduleJobCleanup(jobId);
+    await failJob(jobId, error);
   }
 }

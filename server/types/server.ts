@@ -19,11 +19,12 @@ export interface JobStartResponse {
 
 export interface JobStatusResponse {
   id: string;
-  status: 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed';
   attempt: number;
   maxAttempts: number;
   createdAt: number;
   finishedAt: number | null;
+  retryDelay?: number;
   downloadUrl?: string;
   quality?: 'hd' | 'standard';
   filename?: string;
@@ -49,10 +50,3 @@ export interface DownloadStepResult {
   author: string;
   description: string;
 }
-
-export type SseProgressEvent =
-  | { type: 'connected'; requestId: string }
-  | { type: 'status'; status: 'processing'; attempt: number; maxAttempts: number }
-  | { type: 'retry'; attempt: number; maxAttempts: number; delay: number; message: string }
-  | { type: 'success'; attempt: number; retried: boolean }
-  | { type: 'error'; error: string; errorType: string; suggestion: string };

@@ -1,29 +1,44 @@
 import type { Job } from '../types/server.js';
+import { config } from '../config.js';
+import { redis } from './redis.js';
+import { getErrorResponse } from '../utils/errors.js';
 
-export const DEFAULT_MAX_ATTEMPTS = 5;
-const JOB_TTL_MS = 10 * 60 * 1000;
+const jobKey = (jobId: string) => `job:${jobId}`;
 
-const jobs = new Map<string, Job>();
-
-export function getJob(jobId: string): Job | undefined {
-  return jobs.get(jobId);
+export async function getJob(jobId: string): Promise<Job | undefined> {
+  const raw = await redis.get(jobKey(jobId));
+  if (!raw) return undefined;
+  return JSON.parse(raw) as Job;
 }
 
-export function setJob(jobId: string, job: Job): void {
-  jobs.set(jobId, job);
+export async function createJob(jobId: string, job: Job): Promise<boolean> {
+  const result = await redis.set(jobKey(jobId), JSON.stringify(job), 'EX', config.jobTtlSeconds, 'NX');
+  return result === 'OK';
 }
 
-export function hasJob(jobId: string): boolean {
-  return jobs.has(jobId);
+async function setJob(jobId: string, job: Job): Promise<void> {
+  await redis.set(jobKey(jobId), JSON.stringify(job), 'EX', config.jobTtlSeconds);
 }
 
-export function updateJob(jobId: string, patch: Partial<Job>): void {
-  const job = jobs.get(jobId);
-  if (job) Object.assign(job, patch);
+export async function updateJob(jobId: string, patch: Partial<Job>): Promise<boolean> {
+  const job = await getJob(jobId);
+  if (!job) return false;
+  await setJob(jobId, { ...job, ...patch });
+  return true;
 }
 
-export function scheduleJobCleanup(jobId: string): void {
-  const timer = setTimeout(() => jobs.delete(jobId), JOB_TTL_MS);
-  // Allow Node.js to exit even if this timer is still pending
-  (timer as NodeJS.Timeout).unref();
+export async function deleteJob(jobId: string): Promise<void> {
+  await redis.del(jobKey(jobId));
+}
+
+export async function failJob(jobId: string, error: unknown): Promise<void> {
+  const errorInfo = getErrorResponse(error);
+  await updateJob(jobId, {
+    status: 'failed',
+    finishedAt: Date.now(),
+    retryDelay: undefined,
+    error: errorInfo.message,
+    errorType: errorInfo.errorType,
+    suggestion: errorInfo.suggestion,
+  });
 }

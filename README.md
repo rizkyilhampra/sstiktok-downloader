@@ -19,10 +19,10 @@ The backend resolves the final MP4 URL and proxies it directly to the browser wi
 * 💡 **Helpful errors** – Clear, categorized error messages with suggestions
 * 🐳 **Docker ready** – Simple deployment
 * ❤️ **Health checks** – `/api/health` endpoint + Docker healthcheck
-* 📥 **Download queue system** – Add multiple URLs, processed sequentially
+* 📥 **Download queue system** – Add multiple URLs, processed concurrently
 * 🎬 **Video metadata display** – Shows author and video description
 * 🔄 **Retry mechanism** – Exponential backoff with up to 5 retry attempts
-* 👁️ **Real-time retry visibility** – Live attempt progress with wait times via SSE + polling
+* 👁️ **Retry visibility** – Attempt progress with wait times via polling
 * ⏱️ **Request timeout** – 2-minute client-side poll ceiling for hung jobs
 * 📡 **Range request support** – Proxy streams range headers for resume/seek support
 * ✅ **URL validation** – Client-side format validation with real-time feedback
@@ -32,22 +32,28 @@ The backend resolves the final MP4 URL and proxies it directly to the browser wi
 ```mermaid
 graph LR
     A["🌐 Client"] -->|TikTok URL| B["⚡ Express API"]
-    B -->|Fetch metadata| C["🔗 ssstik.io"]
-    C -->|Video data| B
-    B -->|Decode base64 URL| D["📦 TikTok CDN"]
-    D -->|MP4 stream| A
+    B -->|Store status + enqueue| C["📦 Redis + BullMQ"]
+    C -->|Job work| D["⚙️ Worker"]
+    D -->|Fetch metadata| E["🔗 ssstik.io"]
+    E -->|Video data| D
+    D -->|Save final URL| C
+    A -->|Poll status| B
+    B -->|Proxy MP4| F["🎬 TikTok CDN"]
+    F -->|MP4 stream| A
 
     style A fill:#3b82f6,stroke:#1e40af,color:#fff
     style B fill:#10b981,stroke:#047857,color:#fff
-    style C fill:#f59e0b,stroke:#d97706,color:#fff
+    style C fill:#dc2626,stroke:#991b1b,color:#fff
     style D fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    style E fill:#f59e0b,stroke:#d97706,color:#fff
+    style F fill:#0ea5e9,stroke:#0369a1,color:#fff
 ```
 
-1. **Fetch video metadata** from ssstik.io
-2. **Extract hx-redirect URL** containing base64-encoded video URL
-3. **Decode base64** to get direct TikTok CDN URL (bypassing tikcdn.io proxy)
-4. **Resolve final URL** with proper headers and redirects
-5. **Proxy MP4 stream** to the browser
+1. **Enqueue job** in Redis/BullMQ and return a `jobId`
+2. **Worker fetches metadata** from ssstik.io
+3. **Extract hx-redirect URL** containing base64-encoded video URL
+4. **Decode and resolve final URL** with proper headers and redirects
+5. **Save result in Redis** and proxy MP4 stream to the browser when complete
 
 > Because requests are handled server-side, users never see ssstik.io's ads.
 
@@ -65,6 +71,7 @@ graph LR
 * Node.js 20+ + Express 4.18
 * Cheerio (HTML parsing)
 * Axios + CORS
+* Redis + BullMQ (shared job state and background workers)
 
 ### DevOps
 
@@ -85,15 +92,25 @@ Create `.env`:
 
 ```env
 PORT=3000
+REDIS_URL=redis://localhost:6379
+MAX_CLIENT_CONCURRENT_DOWNLOADS=3
+WORKER_CONCURRENCY=1
+JOB_TTL_SECONDS=600
 ```
 
-Run both servers:
+Start Redis, then run the app services:
 
 ```bash
-# Terminal 1 – backend
-npm run server
+# Terminal 1 – Redis
+docker run --rm -p 6379:6379 redis:7-alpine
 
-# Terminal 2 – frontend
+# Terminal 2 – backend API
+npm run dev:server
+
+# Terminal 3 – worker
+npm run dev:worker
+
+# Terminal 4 – frontend
 npm run dev
 ```
 
@@ -107,18 +124,29 @@ Vite proxies `/api/*` to the backend.
 ### Docker
 
 ```bash
-docker-compose up --build
+docker-compose up --build --scale app=2 --scale worker=3
 ```
 
-App available at [http://localhost:3000](http://localhost:3000)
+App available at [http://localhost](http://localhost)
+
+The example above runs Redis, 2 app replicas, and 3 worker replicas. Tune these for the server:
+
+* 1 core: `app=1`, `worker=1`, `MAX_CLIENT_CONCURRENT_DOWNLOADS=1`, `WORKER_CONCURRENCY=1`
+* 2 cores: `app=1`, `worker=1-2`, `MAX_CLIENT_CONCURRENT_DOWNLOADS=2`, `WORKER_CONCURRENCY=1`
+* 4+ cores: `app=2-3`, workers on remaining cores, `MAX_CLIENT_CONCURRENT_DOWNLOADS` near worker capacity
 
 ### Local production
 
 ```bash
-npm run start
+npm run build
+npm run build:server
+npm run server
+
+# In another terminal
+npm run worker
 ```
 
-Builds the frontend and serves app + API on port 3000.
+Builds the frontend/server, serves app + API on port 3000, and runs the background worker.
 
 ## 🧩 Usage
 
@@ -127,7 +155,7 @@ Builds the frontend and serves app + API on port 3000.
 1. Open the app in your browser
 2. Paste a TikTok URL into the input field
 3. The URL is automatically added to the queue
-4. Videos are downloaded sequentially
+4. Up to 3 videos are processed concurrently
 5. The backend proxies the HD stream to your browser
 
 ### Queue Management
@@ -162,14 +190,14 @@ https://vt.tiktok.com/XXXXXXXXXX
 | Endpoint              | Method | Description                                            |
 | --------------------- | ------ | ------------------------------------------------------ |
 | `/api/download`       | `POST`      | Enqueue a TikTok URL; returns `{ jobId, maxAttempts }` immediately |
-| `/api/jobs/:jobId`    | `GET`       | Poll job status (`processing` / `completed` / `failed`)            |
-| `/api/progress/:requestId` | `GET` (SSE) | Stream real-time retry attempt updates (`retry`/`status` events) |
+| `/api/jobs/:jobId`    | `GET`       | Poll job status (`queued` / `processing` / `completed` / `failed`) |
 | `/api/proxy-download` | `GET`       | Stream video file to client; supports range requests               |
 | `/api/health`         | `GET`       | Health check — returns `{ status: "ok" }`                          |
+| `/api/config`         | `GET`       | Client runtime config, including queue concurrency                 |
 
 ### Download Flow Details
 
-`POST /api/download` returns a `jobId` immediately. The server runs the pipeline in the background:
+`POST /api/download` returns a `jobId` immediately. The API stores job state in Redis and enqueues work in BullMQ. Worker processes run the pipeline in the background:
 
 1. **Scrape ssstik.io** – Fetch video metadata and HD download data; throws if HD is unavailable
 2. **Get hx-redirect URL** – Extract base64-encoded URL from response headers
@@ -198,8 +226,9 @@ sstiktok-downloader/
 │   │   └── utils.ts
 │   ├── App.tsx
 │   └── main.tsx
-├── server/                # Express backend
-│   └── index.js
+├── server/                # Express backend + BullMQ worker
+│   ├── index.ts
+│   └── worker.ts
 ├── dist/                  # Production build
 ├── components.json        # shadcn/ui config
 ├── Dockerfile

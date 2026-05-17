@@ -10,7 +10,8 @@ export function calculateBackoffDelay(attempt: number, baseDelay = 2000, maxDela
 export async function retryWithBackoff<T>(
   operation: () => Promise<T>,
   maxAttempts: number,
-  onAttempt: ((attempt: number, delay: number) => void) | null = null,
+  onAttempt: ((attempt: number, delay: number) => void | Promise<void>) | null = null,
+  onAfterDelay: ((attempt: number) => void | Promise<void>) | null = null,
 ): Promise<{ result: T; attempt: number; retried: boolean }> {
   let lastError: unknown;
 
@@ -20,12 +21,13 @@ export async function retryWithBackoff<T>(
         const delay = calculateBackoffDelay(attempt);
         const delaySec = (delay / 1000).toFixed(1);
         console.log(`Retry attempt ${attempt}/${maxAttempts} - waiting ${delaySec}s (${delay}ms)...`);
-        onAttempt?.(attempt, delay);
+        await onAttempt?.(attempt, delay);
         await new Promise<void>((resolve) => setTimeout(resolve, delay));
       } else {
         console.log(`Starting download attempt 1/${maxAttempts}...`);
       }
 
+      if (attempt > 1) await onAfterDelay?.(attempt);
       const result = await operation();
       if (attempt > 1) console.log(`✓ Success on attempt ${attempt}/${maxAttempts}`);
       return { result, attempt, retried: attempt > 1 };
