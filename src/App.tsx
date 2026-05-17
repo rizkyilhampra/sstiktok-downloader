@@ -186,8 +186,6 @@ function App() {
   }
 
   const handleRetry = (itemId: string) => {
-    processingIdsRef.current.delete(itemId)
-    setSchedulerTick(tick => tick + 1)
     updateQueueItem(itemId, { status: 'pending', error: null })
   }
 
@@ -200,8 +198,6 @@ function App() {
 
   const handleRemoveItem = (itemId: string) => {
     stopJob(itemId)
-    processingIdsRef.current.delete(itemId)
-    setSchedulerTick(tick => tick + 1)
     setQueue(prev => ({
       ...prev,
       items: prev.items.filter(i => i.id !== itemId),

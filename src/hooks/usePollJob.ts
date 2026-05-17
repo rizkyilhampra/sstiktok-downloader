@@ -4,7 +4,7 @@ import type { JobStartResponse, JobStatusResponse } from '@/types/api'
 import type { QueueItem, QueueState } from '@/types/queue'
 
 const POLL_INTERVAL_MS = 1500
-const POLL_CEILING_MS = 2 * 60 * 1000
+const POLL_CEILING_MS = 5 * 60 * 1000
 
 export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
   const pollControlsRef = useRef<Map<string, { pollNow: () => void; stop: () => void }>>(new Map())
