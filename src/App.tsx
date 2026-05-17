@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { QueueDisplay } from '@/components/QueueDisplay'
 import type { QueueItem, QueueState } from '@/types/queue'
 import { usePollJob } from '@/hooks/usePollJob'
@@ -24,9 +25,12 @@ function App() {
     items: [],
   })
   const [schedulerTick, setSchedulerTick] = useState(0)
+  const [pendingDuplicateUrl, setPendingDuplicateUrl] = useState<string | null>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const validationTimerRef = useRef<NodeJS.Timeout | null>(null)
   const processingIdsRef = useRef<Set<string>>(new Set())
+  const confirmedUrlsRef = useRef<Set<string>>(new Set())
+  const activeUrlsRef = useRef<Set<string>>(new Set())
 
   const { processQueueItem, stopJob } = usePollJob(setQueue)
 
@@ -76,6 +80,10 @@ function App() {
     }
   }, [queue.items])
 
+  useEffect(() => {
+    activeUrlsRef.current = new Set(queue.items.map(i => i.url))
+  }, [queue.items])
+
   // Cleanup debounce timer on unmount
   useEffect(() => {
     return () => {
@@ -106,6 +114,22 @@ function App() {
     }))
   }, [maxAttempts])
 
+  const tryAddToQueue = useCallback((videoUrl: string) => {
+    const trimmed = videoUrl.trim()
+    if (activeUrlsRef.current.has(trimmed) && !confirmedUrlsRef.current.has(trimmed)) {
+      setPendingDuplicateUrl(trimmed)
+    } else {
+      addToQueue(trimmed)
+    }
+  }, [addToQueue])
+
+  const handleDuplicateConfirm = () => {
+    if (!pendingDuplicateUrl) return
+    confirmedUrlsRef.current.add(pendingDuplicateUrl)
+    addToQueue(pendingDuplicateUrl)
+    setPendingDuplicateUrl(null)
+  }
+
   const handleInputChange = (value: string) => {
     setUrl(value)
 
@@ -125,7 +149,7 @@ function App() {
       if (!isValidUrl) {
         toast.error('Invalid TikTok URL format')
       } else {
-        addToQueue(value)
+        tryAddToQueue(value)
       }
     }, 1500)
   }
@@ -173,7 +197,7 @@ function App() {
         toast.error("Clipboard doesn't contain a TikTok URL")
         return
       }
-      addToQueue(text.trim())
+      tryAddToQueue(text.trim())
     } catch (err) {
       toast.error(
         err instanceof Error && err.name === 'NotAllowedError'
@@ -206,6 +230,21 @@ function App() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
+      <Dialog open={pendingDuplicateUrl !== null} onOpenChange={(open) => { if (!open) setPendingDuplicateUrl(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Already in queue</DialogTitle>
+            <DialogDescription>
+              This video is already in your download queue. Download another copy?
+              Future pastes of this URL will skip this check.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDuplicateUrl(null)}>Cancel</Button>
+            <Button onClick={handleDuplicateConfirm}>Download again</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-3">
           <CardTitle className="text-2xl">TikTok Downloader</CardTitle>
