@@ -229,7 +229,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4">
       <Dialog open={pendingDuplicateUrl !== null} onOpenChange={(open) => { if (!open) setPendingDuplicateUrl(null) }}>
         <DialogContent>
           <DialogHeader>
@@ -331,6 +331,16 @@ function App() {
           />
         </CardContent>
       </Card>
+      <footer className="mt-6 text-sm text-muted-foreground text-center">
+        Built with love ❤️ by{' '}
+        <a href="https://rizkyilhampra.dev" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-foreground transition-colors">
+          Rizky Ilham Pratama
+        </a>
+        {' · '}
+        <a href="https://github.com/rizkyilhampra/sstiktok-downloader" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-foreground transition-colors">
+          GitHub
+        </a>
+      </footer>
     </div>
   )
 }
