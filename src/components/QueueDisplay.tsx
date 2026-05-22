@@ -86,7 +86,7 @@ export function QueueDisplay({
             variant="ghost"
             size="sm"
             onClick={onClearCompleted}
-            className="h-10 px-3 text-sm"
+            className="h-11 px-3 text-sm"
             aria-label={`Clear ${completedCount} completed item${completedCount !== 1 ? 's' : ''}`}
             title="Clear completed downloads from queue"
           >
@@ -174,7 +174,7 @@ export function QueueDisplay({
                   </Button>
                 )}
                 {removeConfirm === item.id ? (
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Button
                       variant="destructive"
                       size="sm"
@@ -182,7 +182,7 @@ export function QueueDisplay({
                         onRemove(item.id)
                         setRemoveConfirm(null)
                       }}
-                      className="h-10 px-3 text-sm"
+                      className="h-11 px-3 text-sm"
                     >
                       Remove
                     </Button>
@@ -190,7 +190,7 @@ export function QueueDisplay({
                       variant="ghost"
                       size="sm"
                       onClick={() => setRemoveConfirm(null)}
-                      className="h-10 px-3 text-sm"
+                      className="h-11 px-3 text-sm"
                     >
                       Cancel
                     </Button>
