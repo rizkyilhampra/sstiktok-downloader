@@ -38,6 +38,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - MAX_CLIENT_CONCURRENT_DOWNLOADS=3
       - JOB_TTL_SECONDS=600
+      # Comma-separated list of origins allowed to call the API in production.
+      # Replace with your public origin(s), e.g. https://tiktok.example.com
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost}
     depends_on:
       redis:
         condition: service_healthy
