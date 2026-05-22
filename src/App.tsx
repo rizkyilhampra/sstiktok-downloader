@@ -93,6 +93,23 @@ function App() {
     }
   }, [])
 
+  // Handle inbound Share Target intents from the PWA share sheet.
+  // Regex anchors tiktok.com as the host so foreign apps can't smuggle in
+  // arbitrary URLs by embedding the substring "tiktok.com" in a query string.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const shared = params.get('url') ?? params.get('text') ?? params.get('title')
+    if (!shared) {
+      return
+    }
+    const match = shared.match(/https?:\/\/(?:[a-z0-9-]+\.)*tiktok\.com\/[^\s]*/i)
+    if (match) {
+      tryAddToQueue(match[0])
+    }
+    window.history.replaceState({}, '', '/')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Add URL to queue
   const addToQueue = useCallback((videoUrl: string) => {
     if (!videoUrl.trim() || !isTikTokUrl(videoUrl)) return
