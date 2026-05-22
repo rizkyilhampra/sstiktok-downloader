@@ -229,7 +229,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+    <div className="min-h-dvh flex flex-col items-center justify-center px-4 py-8">
       <Dialog open={pendingDuplicateUrl !== null} onOpenChange={(open) => { if (!open) setPendingDuplicateUrl(null) }}>
         <DialogContent>
           <DialogHeader>

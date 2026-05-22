@@ -73,9 +73,9 @@ export function QueueDisplay({
   }
 
   return (
-    <div className="space-y-3">
-      {/* Queue Summary */}
-      <div className="flex items-center justify-between p-4 bg-secondary/50 border border-secondary rounded-lg">
+    <div className="max-h-96 overflow-y-auto rounded-lg border border-border" role="region" aria-label="Download queue">
+      {/* Queue Summary (sticky) */}
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-4 py-3 bg-muted/95 supports-[backdrop-filter]:bg-muted/80 backdrop-blur border-b border-border">
         <div className="text-sm font-medium text-foreground" role="status" aria-live="polite">
           Queue: {totalCount} item{totalCount !== 1 ? 's' : ''}
           {processingCount > 0 && ` (${processingCount} processing)`}
@@ -86,7 +86,7 @@ export function QueueDisplay({
             variant="ghost"
             size="sm"
             onClick={onClearCompleted}
-            className="h-10 px-3 text-sm"
+            className="h-11 px-3 text-sm"
             aria-label={`Clear ${completedCount} completed item${completedCount !== 1 ? 's' : ''}`}
             title="Clear completed downloads from queue"
           >
@@ -96,7 +96,7 @@ export function QueueDisplay({
       </div>
 
       {/* Queue Items */}
-      <div className="space-y-3 max-h-96 overflow-y-auto" role="region" aria-label="Download queue">
+      <div className="space-y-3 p-3">
         {items.map((item, index) => (
           <div
             key={item.id}
@@ -174,7 +174,7 @@ export function QueueDisplay({
                   </Button>
                 )}
                 {removeConfirm === item.id ? (
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Button
                       variant="destructive"
                       size="sm"
@@ -182,7 +182,7 @@ export function QueueDisplay({
                         onRemove(item.id)
                         setRemoveConfirm(null)
                       }}
-                      className="h-10 px-3 text-sm"
+                      className="h-11 px-3 text-sm"
                     >
                       Remove
                     </Button>
@@ -190,7 +190,7 @@ export function QueueDisplay({
                       variant="ghost"
                       size="sm"
                       onClick={() => setRemoveConfirm(null)}
-                      className="h-10 px-3 text-sm"
+                      className="h-11 px-3 text-sm"
                     >
                       Cancel
                     </Button>
