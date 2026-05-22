@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import { Transform } from 'stream';
 import type { Readable } from 'stream';
+import type { AxiosResponse } from 'axios';
 import axios from 'axios';
 import dns from 'dns/promises';
 import net from 'net';
@@ -128,15 +130,6 @@ router.get('/', async (req: Request, res: Response) => {
     return;
   }
 
-  const upstreamHost = parsed.hostname.toLowerCase();
-  const resolution = await resolveSafely(upstreamHost);
-  if (!resolution.ok) {
-    console.warn(`[proxy-download] BLOCKED upstream host="${upstreamHost}" jobId=${jobId} reason="${resolution.reason}"`);
-    res.status(400).json({ error: 'Upstream host not allowed' });
-    return;
-  }
-  console.log(`[proxy-download] ALLOW upstream host="${upstreamHost}" ips=${resolution.ips.join(',')} jobId=${jobId}`);
-
   const finalFilename = sanitizeFilename(filename || job.filename || 'tiktok-video.mp4');
 
   const upstreamHeaders: Record<string, string> = {
@@ -148,18 +141,15 @@ router.get('/', async (req: Request, res: Response) => {
     upstreamHeaders.Range = req.headers.range;
   }
 
-  let upstream;
+  // Follow redirects manually so we can re-run the private-IP check on every
+  // hop — axios's built-in redirect follower bypasses our DNS guard.
+  let upstream: AxiosResponse<Readable>;
   try {
-    upstream = await axios.get<Readable>(url, {
-      responseType: 'stream',
-      timeout: 30_000,
-      headers: upstreamHeaders,
-      maxRedirects: 3,
-      validateStatus: (status) => status >= 200 && status < 400,
-    });
+    upstream = await fetchWithSafeRedirects(url, upstreamHeaders, jobId);
   } catch (error) {
     console.error('Error proxying download:', (error as Error).message);
-    res.status(502).json({ error: 'Failed to download video' });
+    const status = (error as Error & { httpStatus?: number }).httpStatus ?? 502;
+    res.status(status).json({ error: 'Failed to download video' });
     return;
   }
 
@@ -173,26 +163,45 @@ router.get('/', async (req: Request, res: Response) => {
   }
 
   const stream: Readable = upstream.data;
+
+  // Enforce the byte cap inside the pipeline so an over-limit chunk errors the
+  // transform instead of racing with res.write.
+  let streamed = 0;
+  const limiter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      streamed += chunk.length;
+      if (streamed > config.maxProxyBytes) {
+        cb(Object.assign(new Error('size-limit-exceeded'), { code: 'E_SIZE_LIMIT' }));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+
   const cleanup = () => {
     if (!stream.destroyed) stream.destroy();
+    if (!limiter.destroyed) limiter.destroy();
   };
 
-  let streamed = 0;
-  stream.on('data', (chunk: Buffer) => {
-    streamed += chunk.length;
-    if (streamed > config.maxProxyBytes) {
+  stream.on('error', (err: Error) => {
+    console.error('upstream stream error:', err.message);
+    cleanup();
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'Upstream stream error' });
+    } else {
+      res.destroy(err);
+    }
+  });
+  limiter.on('error', (err: Error & { code?: string }) => {
+    cleanup();
+    if (err.code === 'E_SIZE_LIMIT') {
       console.error('Upstream stream exceeded byte limit:', streamed);
-      cleanup();
       if (!res.headersSent) {
         res.status(413).json({ error: 'Upstream file exceeds size limit' });
       } else {
         res.destroy();
       }
-    }
-  });
-  stream.on('error', (err: Error) => {
-    console.error('upstream stream error:', err.message);
-    if (!res.headersSent) {
+    } else if (!res.headersSent) {
       res.status(502).json({ error: 'Upstream stream error' });
     } else {
       res.destroy(err);
@@ -216,7 +225,53 @@ router.get('/', async (req: Request, res: Response) => {
     res.setHeader('Content-Range', String(contentRange));
   }
 
-  stream.pipe(res);
+  stream.pipe(limiter).pipe(res);
 });
+
+async function fetchWithSafeRedirects(
+  startUrl: string,
+  headers: Record<string, string>,
+  jobId: string,
+  maxHops = 3,
+): Promise<AxiosResponse<Readable>> {
+  let current = startUrl;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    const parsed = new URL(current);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw Object.assign(new Error(`non-http protocol on hop ${hop}`), { httpStatus: 400 });
+    }
+    const host = parsed.hostname.toLowerCase();
+    const resolution = await resolveSafely(host);
+    if (!resolution.ok) {
+      console.warn(`[proxy-download] BLOCKED hop=${hop} host="${host}" jobId=${jobId} reason="${resolution.reason}"`);
+      throw Object.assign(new Error('upstream host not allowed'), { httpStatus: 400 });
+    }
+    console.log(`[proxy-download] ${hop === 0 ? 'ALLOW' : 'ALLOW-REDIRECT'} hop=${hop} host="${host}" ips=${resolution.ips.join(',')} jobId=${jobId}`);
+
+    const resp = await axios.get<Readable>(current, {
+      responseType: 'stream',
+      timeout: 30_000,
+      headers,
+      maxRedirects: 0,
+      validateStatus: (s) => (s >= 200 && s < 300) || (s >= 300 && s < 400),
+    });
+
+    if (resp.status >= 300 && resp.status < 400) {
+      const loc = resp.headers['location'];
+      resp.data?.destroy?.();
+      if (!loc || typeof loc !== 'string') {
+        throw Object.assign(new Error('redirect without Location'), { httpStatus: 502 });
+      }
+      if (hop === maxHops) {
+        throw Object.assign(new Error('redirect limit exceeded'), { httpStatus: 502 });
+      }
+      current = new URL(loc, current).toString();
+      continue;
+    }
+
+    return resp;
+  }
+  throw new Error('unreachable');
+}
 
 export default router;

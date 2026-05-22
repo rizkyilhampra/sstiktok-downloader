@@ -8,7 +8,7 @@ import { DOWNLOAD_JOB_NAME } from '../services/queueNames.js';
 
 const router = Router();
 
-const REQUEST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
 function isValidTikTokUrl(raw: string): boolean {
   let parsed: URL;

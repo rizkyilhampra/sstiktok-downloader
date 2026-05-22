@@ -17,7 +17,9 @@ export function createApp(isProduction: boolean): express.Application {
 
   app.use(
     helmet({
-      contentSecurityPolicy: isProduction ? undefined : false,
+      // CSP disabled until we author a policy tested against the Vite build
+      // (Tailwind/sonner/next-themes inject inline styles at runtime).
+      contentSecurityPolicy: false,
       crossOriginEmbedderPolicy: false,
     }),
   );

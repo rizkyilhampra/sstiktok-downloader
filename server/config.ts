@@ -7,7 +7,7 @@ function readPositiveInt(name: string, fallback: number): number {
 
 function readList(name: string, fallback: string[]): string[] {
   const raw = process.env[name];
-  if (!raw) return fallback;
+  if (raw === undefined) return fallback;
   return raw
     .split(',')
     .map((s) => s.trim())
