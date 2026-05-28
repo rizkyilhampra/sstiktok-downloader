@@ -24,16 +24,28 @@ function triggerDownload(href: string, filename: string) {
 export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
   const pollControlsRef = useRef<Map<string, { pollNow: () => void; stop: () => void }>>(new Map())
 
-  // Fires an immediate poll for every in-flight job when the tab returns,
-  // so minimize-and-restore feels instant instead of waiting for the next interval.
+  // On tab return: fire an immediate poll for every in-flight job so
+  // minimize-and-restore feels instant, and stamp completedAt on any item that
+  // completed while backgrounded — those were left without it (see below) so
+  // the auto-hide timer couldn't run and the record stayed stuck.
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return
       pollControlsRef.current.forEach((c) => c.pollNow())
+      setQueue(prev =>
+        prev.items.some(i => i.status === 'completed' && !i.completedAt)
+          ? {
+              ...prev,
+              items: prev.items.map(i =>
+                i.status === 'completed' && !i.completedAt ? { ...i, completedAt: Date.now() } : i,
+              ),
+            }
+          : prev,
+      )
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [])
+  }, [setQueue])
 
   // Shared polling loop used both for freshly-started jobs and for jobs
   // re-attached after a reload. Returns a promise that resolves when the job
