@@ -13,6 +13,37 @@ import type { ClientConfigResponse } from '@/types/api'
 const isTikTokUrl = (url: string) => url.includes('tiktok.com')
 const DEFAULT_MAX_CONCURRENT_DOWNLOADS = 3
 const DEFAULT_MAX_ATTEMPTS = 5
+const AUTO_HIDE_MS = 10_000
+const QUEUE_STORAGE_KEY = 'sstiktok-queue'
+// Matches the server's default JOB_TTL_SECONDS (600s); items older than this
+// reference jobs that have expired in Redis, so don't bother re-attaching them.
+const QUEUE_TTL_MS = 10 * 60 * 1000
+
+function loadQueue(): QueueItem[] {
+  try {
+    const raw = localStorage.getItem(QUEUE_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    const now = Date.now()
+    return parsed
+      .filter((i): i is QueueItem => typeof i?.id === 'string' && typeof i?.url === 'string')
+      .filter(i => typeof i.addedAt === 'number' && now - i.addedAt < QUEUE_TTL_MS)
+      // A job stuck in 'processing' with no jobId never finished its POST; let
+      // the scheduler restart it from scratch.
+      .map(i => (i.status === 'processing' && !i.jobId ? { ...i, status: 'pending' } : i))
+  } catch {
+    return []
+  }
+}
+
+function saveQueue(items: QueueItem[]) {
+  try {
+    localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(items))
+  } catch {
+    // Quota or private-mode failures are non-fatal — persistence is best-effort.
+  }
+}
 
 function App() {
   const [url, setUrl] = useState('')
@@ -32,7 +63,8 @@ function App() {
   const confirmedUrlsRef = useRef<Set<string>>(new Set())
   const activeUrlsRef = useRef<Set<string>>(new Set())
 
-  const { processQueueItem, stopJob } = usePollJob(setQueue)
+  const { processQueueItem, reattachJob, stopJob } = usePollJob(setQueue)
+  const didRehydrate = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -64,20 +96,49 @@ function App() {
     }))
   }, [])
 
-  // Auto-hide completed items after 10 seconds
+  // Rehydrate the queue from a previous session and resume polling any job
+  // that was still in flight. Server jobs survive in Redis for QUEUE_TTL_MS,
+  // so a reload or backgrounded-PWA discard no longer loses in-flight downloads.
   useEffect(() => {
-    const completedItems = queue.items.filter(item => item.status === 'completed')
-    if (completedItems.length > 0) {
-      const timer = setTimeout(() => {
-        setQueue(prev => ({
-          ...prev,
-          items: prev.items.filter(item => item.status !== 'completed'),
-        }))
-        setUrl('')
-      }, 10_000)
+    if (didRehydrate.current) return
+    didRehydrate.current = true
+    const saved = loadQueue()
+    if (saved.length === 0) return
+    setQueue({ items: saved })
+    saved.forEach(item => {
+      if (item.jobId && item.status === 'processing') {
+        processingIdsRef.current.add(item.id)
+        reattachJob(item).finally(() => {
+          processingIdsRef.current.delete(item.id)
+          setSchedulerTick(tick => tick + 1)
+        })
+      }
+    })
+  }, [reattachJob])
 
-      return () => clearTimeout(timer)
-    }
+  // Persist the queue so it can be rehydrated on the next load.
+  useEffect(() => {
+    saveQueue(queue.items)
+  }, [queue.items])
+
+  // Auto-hide completed items ~10s after each one completes. The deadline is
+  // derived from the item's own completedAt (not "now"), so an actively-polling
+  // sibling that keeps mutating queue.items can't reset another item's timer.
+  useEffect(() => {
+    const completed = queue.items.filter(i => i.status === 'completed' && i.completedAt)
+    if (completed.length === 0) return
+    const nextDeadline = Math.min(...completed.map(i => i.completedAt! + AUTO_HIDE_MS))
+    const delay = Math.max(0, nextDeadline - Date.now())
+    const timer = setTimeout(() => {
+      const cutoff = Date.now()
+      setQueue(prev => ({
+        ...prev,
+        items: prev.items.filter(
+          i => !(i.status === 'completed' && i.completedAt && i.completedAt + AUTO_HIDE_MS <= cutoff),
+        ),
+      }))
+    }, delay)
+    return () => clearTimeout(timer)
   }, [queue.items])
 
   useEffect(() => {
@@ -129,6 +190,7 @@ function App() {
       ...prev,
       items: [...prev.items, newItem],
     }))
+    setUrl('')
   }, [maxAttempts])
 
   const tryAddToQueue = useCallback((videoUrl: string) => {

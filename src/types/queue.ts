@@ -20,6 +20,7 @@ export interface QueueItem {
   maxAttempts?: number
   jobId?: string
   addedAt: number
+  completedAt?: number
   metadata?: QueueItemMetadata
 }
 

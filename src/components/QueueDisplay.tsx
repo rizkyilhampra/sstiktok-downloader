@@ -1,6 +1,7 @@
-import { Loader2, CheckCircle2, AlertCircle, Trash2, RotateCcw } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertCircle, Trash2, RotateCcw, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
+import { proxyDownloadUrl } from '@/hooks/usePollJob'
 import type { QueueItem, QueueItemStatus } from '@/types/queue'
 
 interface QueueDisplayProps {
@@ -156,6 +157,21 @@ export function QueueDisplay({
                 {/* Success Details */}
                 {item.result?.success && item.result.filename && (
                   <p className="text-sm text-primary mt-1.5">{item.result.filename}</p>
+                )}
+
+                {/* Explicit download link — reliable fallback when the
+                    automatic download was suppressed (tab backgrounded, or
+                    the browser blocked a gesture-less / multiple download). */}
+                {item.status === 'completed' && item.jobId && (
+                  <Button asChild variant="outline" size="sm" className="mt-2 h-11">
+                    <a
+                      href={proxyDownloadUrl(item.jobId, item.result?.filename || 'tiktok-video.mp4')}
+                      download={item.result?.filename || 'tiktok-video.mp4'}
+                    >
+                      <Download className="h-4 w-4" />
+                      Download
+                    </a>
+                  </Button>
                 )}
               </div>
 
