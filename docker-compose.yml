@@ -1,3 +1,10 @@
+# Cap container log growth so the json-file driver can't fill the host disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   redis:
     image: redis:7-alpine
@@ -12,6 +19,7 @@ services:
     networks:
       - app-network
     restart: unless-stopped
+    logging: *default-logging
 
   nginx:
     image: nginx:1.27-alpine
@@ -25,6 +33,7 @@ services:
     networks:
       - app-network
     restart: unless-stopped
+    logging: *default-logging
 
   app:
     build:
@@ -57,6 +66,7 @@ services:
       retries: 3
     networks:
       - app-network
+    logging: *default-logging
 
   worker:
     build:
@@ -80,6 +90,7 @@ services:
     restart: unless-stopped
     networks:
       - app-network
+    logging: *default-logging
 
 networks:
   app-network:
