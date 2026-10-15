@@ -1,11 +1,30 @@
 import path from "path"
+import { execFileSync } from "node:child_process"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "vite"
 import { VitePWA } from "vite-plugin-pwa"
 
+function readBuildCommit() {
+  try {
+    const [sha, title] = execFileSync('git', ['log', '-1', '--format=%H%n%s'], {
+      cwd: __dirname,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trimEnd().split('\n')
+
+    if (!/^[a-f0-9]{40}$/.test(sha) || !title) return null
+    return { sha, title }
+  } catch {
+    return null
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    __BUILD_COMMIT__: JSON.stringify(readBuildCommit()),
+  },
   plugins: [
     react(),
     tailwindcss(),

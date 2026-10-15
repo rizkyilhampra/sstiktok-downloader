@@ -573,6 +573,21 @@ function App() {
         <a href="https://github.com/rizkyilhampra/sstiktok-downloader" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-foreground transition-colors">
           GitHub
         </a>
+        {__BUILD_COMMIT__ && (
+          <div className="mt-2">
+            Built from{' '}
+            <a
+              href={`https://github.com/rizkyilhampra/sstiktok-downloader/commit/${__BUILD_COMMIT__.sha}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={__BUILD_COMMIT__.title}
+              aria-label={`Commit ${__BUILD_COMMIT__.sha.slice(0, 7)}: ${__BUILD_COMMIT__.title}`}
+              className="underline underline-offset-4 hover:text-foreground transition-colors"
+            >
+              {__BUILD_COMMIT__.sha.slice(0, 7)}
+            </a>
+          </div>
+        )}
       </footer>
     </div>
   )

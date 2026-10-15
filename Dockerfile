@@ -5,6 +5,9 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app
 
+# Git is needed only while embedding the source commit in the frontend build.
+RUN apk add --no-cache git
+
 COPY package*.json ./
 RUN npm ci
 
