@@ -11,7 +11,8 @@ router.get('/:jobId', async (req: Request<{ jobId: string }>, res: Response) => 
       res.status(404).json({ error: 'Job not found or expired' });
       return;
     }
-    res.json(job);
+    const { requestedUrl: _requestedUrl, ...status } = job;
+    res.json(status);
   } catch (error) {
     console.error('Failed to read job:', (error as Error).message);
     res.status(503).json({ error: 'Job store is unavailable' });

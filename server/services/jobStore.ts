@@ -27,10 +27,6 @@ export async function updateJob(jobId: string, patch: Partial<Job>): Promise<boo
   return true;
 }
 
-export async function deleteJob(jobId: string): Promise<void> {
-  await redis.del(jobKey(jobId));
-}
-
 export async function failJob(jobId: string, error: unknown): Promise<void> {
   const errorInfo = getErrorResponse(error);
   await updateJob(jobId, {

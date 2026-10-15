@@ -36,7 +36,7 @@ export interface JobStatusResponse {
   retried?: boolean;
 }
 
-export type Job = JobStatusResponse;
+export type Job = JobStatusResponse & { requestedUrl?: string };
 
 export interface ErrorInfo {
   errorType: ErrorType;

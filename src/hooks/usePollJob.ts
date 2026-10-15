@@ -24,28 +24,15 @@ function triggerDownload(href: string, filename: string) {
 export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
   const pollControlsRef = useRef<Map<string, { pollNow: () => void; stop: () => void }>>(new Map())
 
-  // On tab return: fire an immediate poll for every in-flight job so
-  // minimize-and-restore feels instant, and stamp completedAt on any item that
-  // completed while backgrounded — those were left without it (see below) so
-  // the auto-hide timer couldn't run and the record stayed stuck.
+  // On tab return, fire an immediate poll for every in-flight job.
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return
       pollControlsRef.current.forEach((c) => c.pollNow())
-      setQueue(prev =>
-        prev.items.some(i => i.status === 'completed' && !i.completedAt)
-          ? {
-              ...prev,
-              items: prev.items.map(i =>
-                i.status === 'completed' && !i.completedAt ? { ...i, completedAt: Date.now() } : i,
-              ),
-            }
-          : prev,
-      )
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [setQueue])
+  }, [])
 
   // Shared polling loop used both for freshly-started jobs and for jobs
   // re-attached after a reload. Returns a promise that resolves when the job
@@ -57,8 +44,8 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
         items: prev.items.map(i => (i.id === itemId ? { ...i, ...patch } : i)),
       }))
     }
-    const failJob = (error: string, suggestion?: string) =>
-      finalize({ status: 'failed', error, suggestion })
+    const failJob = (error: string, retryMode: QueueItem['retryMode'], suggestion?: string) =>
+      finalize({ status: 'failed', error, suggestion, retryMode })
 
     return new Promise<void>((resolve) => {
       let interval: ReturnType<typeof setInterval> | null = null
@@ -90,7 +77,7 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
           const res = await fetch(`/api/jobs/${jobId}`)
           if (!res.ok) {
             if (res.status === 404) {
-              failJob('Job no longer exists on the server', 'Try again — the job may have expired.')
+              failJob('Job no longer exists on the server', 'restart', 'Try again — the job may have expired.')
               stop()
             } else {
               console.warn(`Poll returned unexpected ${res.status}`)
@@ -124,7 +111,7 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
               }),
             }))
             if (activeMs > POLL_CEILING_MS) {
-              failJob('Timed out waiting for the server to finish processing', 'Try again in a moment.')
+              failJob('Timed out waiting for the server to finish processing', 'poll', 'Try again in a moment.')
               stop()
             }
             return
@@ -132,18 +119,13 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
 
           if (data.status === 'completed' && data.downloadUrl) {
             const filename = data.filename || 'tiktok-video.mp4'
-            // Auto-hide keys off completedAt, so only set it when the tab is
-            // visible (same gate as the auto-download below). A job that
-            // completes in the background keeps its Download button until the
-            // user returns and acts on it, instead of being silently removed
-            // before they can use the fallback.
             const visible = document.visibilityState === 'visible'
             finalize({
               status: 'completed',
-              completedAt: visible ? Date.now() : undefined,
+              finishedAt: data.finishedAt ?? Date.now(),
+              retryMode: undefined,
               result: {
                 success: true,
-                downloadUrl: data.downloadUrl,
                 quality: data.quality,
                 filename: data.filename,
                 author: data.author,
@@ -172,6 +154,7 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
           if (data.status === 'failed') {
             finalize({
               status: 'failed',
+              retryMode: 'restart',
               error: data.error || 'Failed to process video',
               suggestion: data.suggestion,
               retryAttempt: data.attempt ?? null,
@@ -196,12 +179,10 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
   }, [setQueue])
 
   const processQueueItem = useCallback(async (item: QueueItem) => {
-    const requestId = `${item.id}-${Date.now()}`
-
-    const failJob = (error: string, suggestion?: string) =>
+    const failJob = (error: string, retryMode: QueueItem['retryMode'], suggestion?: string) =>
       setQueue(prev => ({
         ...prev,
-        items: prev.items.map(i => (i.id === item.id ? { ...i, status: 'failed', error, suggestion } : i)),
+        items: prev.items.map(i => (i.id === item.id ? { ...i, status: 'failed', error, suggestion, retryMode } : i)),
       }))
 
     let startData: JobStartResponse
@@ -209,16 +190,21 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
       const startRes = await fetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: item.url, requestId }),
+        body: JSON.stringify({ url: item.url, requestId: item.requestId }),
       })
       startData = await startRes.json()
       if (!startRes.ok || !startData.jobId) {
-        failJob(startData.error || 'Failed to start job', startData.suggestion)
+        failJob(
+          startData.error || 'Failed to start job',
+          startRes.status >= 400 && startRes.status < 500 ? 'restart' : 'resubmit',
+          startData.suggestion,
+        )
         return
       }
     } catch (err) {
       failJob(
         err instanceof Error ? err.message : 'Network error occurred',
+        'resubmit',
         'Check your internet connection and try again.',
       )
       return
@@ -234,9 +220,7 @@ export function usePollJob(setQueue: Dispatch<SetStateAction<QueueState>>) {
     return runPollLoop(item.id, startData.jobId)
   }, [setQueue, runPollLoop])
 
-  // Resume polling for a job that already has a jobId (e.g. rehydrated from a
-  // previous session). Idempotent server-side, but we poll the existing jobId
-  // directly rather than re-POSTing, since the original requestId was not stable.
+  // Resume polling for a known job after reload or a local polling timeout.
   const reattachJob = useCallback((item: QueueItem) => {
     if (!item.jobId) return Promise.resolve()
     return runPollLoop(item.id, item.jobId)

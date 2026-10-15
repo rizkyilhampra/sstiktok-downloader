@@ -15,6 +15,7 @@ const DEFAULT_MAX_ATTEMPTS = 5
 
 const STATUS_CARD_CLASS: Record<QueueItemStatus, string> = {
   completed: 'border-primary/50 bg-primary/10',
+  expired: 'border-secondary/50 bg-secondary/30',
   failed: 'border-destructive/50 bg-destructive/10',
   processing: 'border-blue-500/50 bg-blue-500/10',
   pending: 'border-secondary/50 bg-secondary/30',
@@ -26,6 +27,8 @@ function StatusIcon({ status }: { status: QueueItemStatus }) {
       return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
     case 'completed':
       return <CheckCircle2 className="h-5 w-5 text-primary" />
+    case 'expired':
+      return <AlertCircle className="h-5 w-5 text-muted-foreground" />
     case 'failed':
       return <AlertCircle className="h-5 w-5 text-destructive" />
     case 'pending':
@@ -45,7 +48,7 @@ export function QueueDisplay({
     return null
   }
 
-  const completedCount = items.filter(i => i.status === 'completed').length
+  const completedCount = items.filter(i => i.status === 'completed' || i.status === 'expired').length
   const processingCount = items.filter(i => i.status === 'processing').length
   const failedCount = items.filter(i => i.status === 'failed').length
   const totalCount = items.length
@@ -58,7 +61,9 @@ export function QueueDisplay({
         }
         return 'Processing...'
       case 'completed':
-        return 'Downloading to browser'
+        return item.finishedAt ? 'Ready to download' : 'Checking saved download...'
+      case 'expired':
+        return 'Download link expired'
       case 'failed':
         return 'Failed'
       case 'pending':
@@ -88,8 +93,8 @@ export function QueueDisplay({
             size="sm"
             onClick={onClearCompleted}
             className="h-11 px-3 text-sm"
-            aria-label={`Clear ${completedCount} completed item${completedCount !== 1 ? 's' : ''}`}
-            title="Clear completed downloads from queue"
+            aria-label={`Clear ${completedCount} finished item${completedCount !== 1 ? 's' : ''}`}
+            title="Clear completed and expired downloads from queue"
           >
             Clear ({completedCount})
           </Button>
@@ -154,15 +159,21 @@ export function QueueDisplay({
                   </div>
                 )}
 
+                {item.status === 'expired' && (
+                  <p className="text-sm text-muted-foreground mt-1.5">
+                    Process this video again to get a new download link.
+                  </p>
+                )}
+
                 {/* Success Details */}
-                {item.result?.success && item.result.filename && (
+                {item.status === 'completed' && item.result?.success && item.result.filename && (
                   <p className="text-sm text-primary mt-1.5">{item.result.filename}</p>
                 )}
 
                 {/* Explicit download link — reliable fallback when the
                     automatic download was suppressed (tab backgrounded, or
                     the browser blocked a gesture-less / multiple download). */}
-                {item.status === 'completed' && item.jobId && (
+                {item.status === 'completed' && item.jobId && item.finishedAt && (
                   <Button asChild variant="outline" size="sm" className="mt-2 h-11">
                     <a
                       href={proxyDownloadUrl(item.jobId, item.result?.filename || 'tiktok-video.mp4')}
@@ -177,13 +188,13 @@ export function QueueDisplay({
 
               {/* Actions */}
               <div className="flex items-center gap-2 flex-shrink-0">
-                {item.status === 'failed' && !removeConfirm && (
+                {(item.status === 'failed' || item.status === 'expired') && !removeConfirm && (
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => onRetry(item.id)}
                     className="h-11 w-11 p-0"
-                    title="Retry download (add back to queue)"
+                    title="Process this video again"
                     aria-label="Retry this download"
                   >
                     <RotateCcw className="h-5 w-5" />

@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { QueueDisplay } from '@/components/QueueDisplay'
 import type { QueueItem, QueueState } from '@/types/queue'
 import { usePollJob } from '@/hooks/usePollJob'
-import type { ClientConfigResponse } from '@/types/api'
+import type { ClientConfigResponse, JobStatusResponse } from '@/types/api'
 
 function isTikTokUrl(raw: string): boolean {
   try {
@@ -32,11 +32,15 @@ function findTikTokUrl(text: string): string | null {
 }
 const DEFAULT_MAX_CONCURRENT_DOWNLOADS = 3
 const DEFAULT_MAX_ATTEMPTS = 5
-const AUTO_HIDE_MS = 10_000
 const QUEUE_STORAGE_KEY = 'sstiktok-queue'
-// Matches the server's default JOB_TTL_SECONDS (600s); items older than this
-// reference jobs that have expired in Redis, so don't bother re-attaching them.
-const QUEUE_TTL_MS = 10 * 60 * 1000
+const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,128}$/
+const SAVED_JOB_CHECK_INTERVAL_MS = 5000
+const CONFIG_RETRY_INTERVAL_MS = 5000
+
+function newRequestId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+}
 
 function loadQueue(): QueueItem[] {
   try {
@@ -44,12 +48,17 @@ function loadQueue(): QueueItem[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    const now = Date.now()
     return parsed
       .filter((i): i is QueueItem => typeof i?.id === 'string' && typeof i?.url === 'string')
-      .filter(i => typeof i.addedAt === 'number' && now - i.addedAt < QUEUE_TTL_MS)
-      // A job stuck in 'processing' with no jobId never finished its POST; let
-      // the scheduler restart it from scratch.
+      .filter(i => typeof i.addedAt === 'number')
+      .map(i => ({
+        ...i,
+        result: i.result ? { ...i.result, downloadUrl: undefined } : null,
+        requestId: typeof i.requestId === 'string' && REQUEST_ID_RE.test(i.requestId)
+          ? i.requestId
+          : REQUEST_ID_RE.test(i.id) ? i.id : newRequestId(),
+      }))
+      // Resume an uncertain POST with its saved request ID.
       .map(i => (i.status === 'processing' && !i.jobId ? { ...i, status: 'pending' } : i))
   } catch {
     return []
@@ -70,10 +79,9 @@ function App() {
   const [isValidating, setIsValidating] = useState(false)
   const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(DEFAULT_MAX_CONCURRENT_DOWNLOADS)
   const [maxAttempts, setMaxAttempts] = useState(DEFAULT_MAX_ATTEMPTS)
+  const [jobTtlSeconds, setJobTtlSeconds] = useState<number | null>(null)
 
-  const [queue, setQueue] = useState<QueueState>({
-    items: [],
-  })
+  const [queue, setQueue] = useState<QueueState>(() => ({ items: loadQueue() }))
   const [schedulerTick, setSchedulerTick] = useState(0)
   const [pendingDuplicateUrl, setPendingDuplicateUrl] = useState<string | null>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -81,50 +89,64 @@ function App() {
   const processingIdsRef = useRef<Set<string>>(new Set())
   const confirmedUrlsRef = useRef<Set<string>>(new Set())
   const activeUrlsRef = useRef<Set<string>>(new Set())
+  const queueItemsRef = useRef(queue.items)
+  const restoredIdsRef = useRef(new Set(queue.items.map(i => i.id)))
 
   const { processQueueItem, reattachJob, stopJob } = usePollJob(setQueue)
   const didRehydrate = useRef(false)
 
   useEffect(() => {
     let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
 
-    void fetch('/api/config')
-      .then(async (res) => {
-        if (!res.ok) return
+    const loadConfig = async () => {
+      try {
+        const res = await fetch('/api/config')
+        if (!res.ok) throw new Error(`Config request returned ${res.status}`)
         const data = await res.json() as ClientConfigResponse
+        if (!Number.isInteger(data.jobTtlSeconds) || data.jobTtlSeconds <= 0) {
+          throw new Error('Config response has no valid job TTL')
+        }
         if (!cancelled && Number.isInteger(data.maxClientConcurrentDownloads) && data.maxClientConcurrentDownloads > 0) {
           setMaxConcurrentDownloads(data.maxClientConcurrentDownloads)
         }
         if (!cancelled && Number.isInteger(data.maxAttempts) && data.maxAttempts > 0) {
           setMaxAttempts(data.maxAttempts)
         }
-      })
-      .catch((err) => {
-        console.warn('Failed to load client config:', err)
-      })
+        if (!cancelled) setJobTtlSeconds(data.jobTtlSeconds)
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('Failed to load client config (will retry):', err)
+          retryTimer = setTimeout(() => void loadConfig(), CONFIG_RETRY_INTERVAL_MS)
+        }
+      }
+    }
+
+    void loadConfig()
 
     return () => {
       cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
     }
   }, [])
 
-  const updateQueueItem = useCallback((id: string, patch: Partial<QueueItem>) => {
-    setQueue(prev => ({
-      ...prev,
-      items: prev.items.map(i => (i.id === id ? { ...i, ...patch } : i)),
-    }))
+  const updateSavedCompletedItem = useCallback((id: string, patch: Partial<QueueItem>) => {
+    setQueue(prev => {
+      let changed = false
+      const items = prev.items.map(i => {
+        if (i.id !== id || i.status !== 'completed' || i.finishedAt) return i
+        changed = true
+        return { ...i, ...patch }
+      })
+      return changed ? { ...prev, items } : prev
+    })
   }, [])
 
-  // Rehydrate the queue from a previous session and resume polling any job
-  // that was still in flight. Server jobs survive in Redis for QUEUE_TTL_MS,
-  // so a reload or backgrounded-PWA discard no longer loses in-flight downloads.
+  // Resume in-flight jobs saved by an earlier session.
   useEffect(() => {
     if (didRehydrate.current) return
     didRehydrate.current = true
-    const saved = loadQueue()
-    if (saved.length === 0) return
-    setQueue({ items: saved })
-    saved.forEach(item => {
+    queue.items.forEach(item => {
       if (item.jobId && item.status === 'processing') {
         processingIdsRef.current.add(item.id)
         reattachJob(item).finally(() => {
@@ -133,32 +155,110 @@ function App() {
         })
       }
     })
-  }, [reattachJob])
+  }, [queue.items, reattachJob])
+
+  useEffect(() => {
+    queueItemsRef.current = queue.items
+  }, [queue.items])
+
+  // Older saved items have no finishedAt. Recheck them until the server gives
+  // a definitive result; a temporary network or Redis failure is not expiry.
+  useEffect(() => {
+    if (!queueItemsRef.current.some(i => i.status === 'completed' && !i.finishedAt)) return
+    let cancelled = false
+    const inFlight = new Set<string>()
+    let timer: ReturnType<typeof setInterval>
+
+    const check = () => {
+      const pending = queueItemsRef.current.filter(i => i.status === 'completed' && !i.finishedAt)
+      if (pending.length === 0) {
+        clearInterval(timer)
+        return
+      }
+      pending.forEach(item => {
+        if (!item.jobId) {
+          updateSavedCompletedItem(item.id, { status: 'expired' })
+          return
+        }
+        if (inFlight.has(item.id)) return
+        inFlight.add(item.id)
+        void fetch(`/api/jobs/${encodeURIComponent(item.jobId)}`)
+          .then(async res => {
+            if (cancelled) return
+            if (res.status === 404) {
+              updateSavedCompletedItem(item.id, { status: 'expired' })
+              return
+            }
+            if (!res.ok) return
+            const data = await res.json() as JobStatusResponse
+            if (cancelled) return
+            if (data.status === 'failed') {
+              updateSavedCompletedItem(item.id, { status: 'expired' })
+            } else if (data.status === 'completed' && typeof data.finishedAt === 'number') {
+              updateSavedCompletedItem(item.id, { finishedAt: data.finishedAt })
+            }
+          })
+          .catch(err => console.warn('Failed to check saved download (will retry):', err))
+          .finally(() => inFlight.delete(item.id))
+      })
+    }
+
+    check()
+    timer = setInterval(check, SAVED_JOB_CHECK_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [updateSavedCompletedItem])
 
   // Persist the queue so it can be rehydrated on the next load.
   useEffect(() => {
     saveQueue(queue.items)
   }, [queue.items])
 
-  // Auto-hide completed items ~10s after each one completes. The deadline is
-  // derived from the item's own completedAt (not "now"), so an actively-polling
-  // sibling that keeps mutating queue.items can't reset another item's timer.
+  // Keep completed items, but replace their download link when Redis expires it.
   useEffect(() => {
-    const completed = queue.items.filter(i => i.status === 'completed' && i.completedAt)
+    if (jobTtlSeconds === null) return
+    const completed = queue.items.filter(i => i.status === 'completed' && typeof i.finishedAt === 'number')
     if (completed.length === 0) return
-    const nextDeadline = Math.min(...completed.map(i => i.completedAt! + AUTO_HIDE_MS))
+    const nextDeadline = Math.min(...completed.map(i => i.finishedAt! + jobTtlSeconds * 1000))
     const delay = Math.max(0, nextDeadline - Date.now())
     const timer = setTimeout(() => {
-      const cutoff = Date.now()
+      const cutoff = Date.now() - jobTtlSeconds * 1000
       setQueue(prev => ({
         ...prev,
-        items: prev.items.filter(
-          i => !(i.status === 'completed' && i.completedAt && i.completedAt + AUTO_HIDE_MS <= cutoff),
+        items: prev.items.map(i =>
+          i.status === 'completed' && typeof i.finishedAt === 'number' && i.finishedAt <= cutoff
+            ? { ...i, status: 'expired' }
+            : i,
         ),
       }))
     }, delay)
     return () => clearTimeout(timer)
-  }, [queue.items])
+  }, [queue.items, jobTtlSeconds])
+
+  // Only restored, unsubmitted work needs an age check. A fresh item may wait
+  // in the client queue longer than the server job TTL before it gets a slot.
+  useEffect(() => {
+    if (jobTtlSeconds === null) return
+    const cutoff = Date.now() - jobTtlSeconds * 1000
+    setQueue(prev => {
+      let changed = false
+      const items = prev.items.map(i => {
+        if (!restoredIdsRef.current.has(i.id) || i.status !== 'pending' || i.jobId ||
+          (i.submittedAt ?? i.addedAt) >= cutoff) return i
+        changed = true
+        return {
+          ...i,
+          status: 'failed' as const,
+          retryMode: 'restart' as const,
+          error: 'Saved request is too old to resume',
+          suggestion: 'Retry to start a new download.',
+        }
+      })
+      return changed ? { ...prev, items } : prev
+    })
+  }, [jobTtlSeconds])
 
   useEffect(() => {
     activeUrlsRef.current = new Set(queue.items.map(i => i.url))
@@ -193,8 +293,10 @@ function App() {
   const addToQueue = useCallback((videoUrl: string) => {
     if (!videoUrl.trim() || !isTikTokUrl(videoUrl)) return
 
+    const id = newRequestId()
     const newItem: QueueItem = {
-      id: `${Date.now()}-${Math.random()}`,
+      id,
+      requestId: id,
       url: videoUrl.trim(),
       status: 'pending',
       result: null,
@@ -256,27 +358,37 @@ function App() {
     if (availableSlots <= 0) return
 
     const pendingItems = queue.items
-      .filter(item => item.status === 'pending' && !processingIdsRef.current.has(item.id))
+      .filter(item =>
+        item.status === 'pending' &&
+        !processingIdsRef.current.has(item.id) &&
+        (!restoredIdsRef.current.has(item.id) || Boolean(item.jobId) ||
+          (jobTtlSeconds !== null && Date.now() - (item.submittedAt ?? item.addedAt) < jobTtlSeconds * 1000)),
+      )
       .slice(0, availableSlots)
     if (pendingItems.length === 0) return
 
     pendingItems.forEach(item => processingIdsRef.current.add(item.id))
+    const startedAt = Date.now()
+    const markStarted = (items: QueueItem[]) => items.map(i =>
+      processingIdsRef.current.has(i.id) && i.status === 'pending'
+        ? { ...i, status: 'processing' as const, submittedAt: i.retryMode === 'poll' ? i.submittedAt : startedAt }
+        : i,
+    )
+    // Persist the submission timestamp and request ID before the POST begins.
+    saveQueue(markStarted(queue.items))
     setQueue(prev => ({
       ...prev,
-      items: prev.items.map(i =>
-        processingIdsRef.current.has(i.id) && i.status === 'pending'
-          ? { ...i, status: 'processing' }
-          : i
-      ),
+      items: markStarted(prev.items),
     }))
 
     pendingItems.forEach(item => {
-      processQueueItem(item).finally(() => {
+      const task = item.retryMode === 'poll' && item.jobId ? reattachJob(item) : processQueueItem(item)
+      task.finally(() => {
         processingIdsRef.current.delete(item.id)
         setSchedulerTick(tick => tick + 1)
       })
     })
-  }, [queue.items, processQueueItem, schedulerTick, maxConcurrentDownloads])
+  }, [queue.items, processQueueItem, reattachJob, schedulerTick, maxConcurrentDownloads, jobTtlSeconds])
 
   const handlePasteAndDownload = async () => {
     setIsPasting(true)
@@ -308,13 +420,36 @@ function App() {
   }
 
   const handleRetry = (itemId: string) => {
-    updateQueueItem(itemId, { status: 'pending', error: null })
+    restoredIdsRef.current.delete(itemId)
+    setQueue(prev => ({
+      ...prev,
+      items: prev.items.map(i => {
+        if (i.id !== itemId) return i
+        const mode = i.status === 'expired' ? 'restart' : i.retryMode ?? 'restart'
+        return {
+          ...i,
+          status: 'pending',
+          requestId: mode === 'restart' ? newRequestId() : i.requestId,
+          jobId: mode === 'poll' ? i.jobId : undefined,
+          retryMode: mode === 'poll' ? 'poll' : undefined,
+          result: null,
+          metadata: undefined,
+          finishedAt: undefined,
+          addedAt: Date.now(),
+          submittedAt: undefined,
+          error: null,
+          suggestion: undefined,
+          retryAttempt: null,
+          retryDelay: undefined,
+        }
+      }),
+    }))
   }
 
   const handleClearCompleted = () => {
     setQueue(prev => ({
       ...prev,
-      items: prev.items.filter(i => i.status !== 'completed'),
+      items: prev.items.filter(i => i.status !== 'completed' && i.status !== 'expired'),
     }))
   }
 

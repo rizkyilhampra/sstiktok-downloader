@@ -32,8 +32,9 @@ Because every request is handled server-side, users never see ssstik.io's ads.
 * **Retries** — each job runs up to **5 attempts total** (1 initial + 4 retries) with exponential backoff: base 2s, doubling per attempt, capped at 30s. Configured by `DEFAULT_MAX_ATTEMPTS` in `server/config.ts`.
 * **Timeouts** — each scrape step has a 15s timeout (`STEP_TIMEOUT_MS`); the proxy upstream request has a 30s timeout.
 * **Client poll** — the frontend polls every 1.5s with a **5-minute ceiling**; a job still unresolved after that is marked failed client-side. Polling fires immediately when a backgrounded tab becomes visible again.
-* **Idempotency** — job creation uses Redis `SET NX`; reusing a `requestId` returns the existing job instead of enqueuing a duplicate.
+* **Idempotency** — job creation uses Redis `SET NX`; reusing a `requestId` returns the existing job instead of enqueuing a duplicate. The client saves a stable request ID with each queue item so a reload or uncertain POST can safely resubmit it. If a queued Redis record has no BullMQ job after an interrupted enqueue, the next request repairs it using the original URL.
 * **Job TTL** — job state expires from Redis after `JOB_TTL_SECONDS` (default 600s).
+* **Completed items** — remain in the client queue until cleared or removed. Once the job TTL passes, the Download link is replaced with Retry, which starts a new job.
 
 ## API endpoints
 
@@ -43,7 +44,7 @@ Because every request is handled server-side, users never see ssstik.io's ads.
 | `/api/jobs/:jobId`    | `GET`  | Poll job status (`queued` / `processing` / `completed` / `failed`).  |
 | `/api/proxy-download` | `GET`  | Stream the video file to the client. Supports HTTP range requests.   |
 | `/api/health`         | `GET`  | Health check — returns `{ status: "ok" }`.                           |
-| `/api/config`         | `GET`  | Client runtime config: `maxClientConcurrentDownloads`, `maxAttempts`. |
+| `/api/config`         | `GET`  | Client runtime config: `maxClientConcurrentDownloads`, `maxAttempts`, `jobTtlSeconds`. |
 
 ### `POST /api/download`
 

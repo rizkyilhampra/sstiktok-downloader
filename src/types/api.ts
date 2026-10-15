@@ -38,6 +38,7 @@ export interface JobStartResponse {
 
 export interface JobStatusResponse {
   status: 'queued' | 'processing' | 'completed' | 'failed';
+  finishedAt?: number | null;
   attempt?: number;
   maxAttempts?: number;
   retryDelay?: number;
@@ -58,4 +59,5 @@ export interface HealthResponse {
 export interface ClientConfigResponse {
   maxClientConcurrentDownloads: number;
   maxAttempts: number;
+  jobTtlSeconds: number;
 }

@@ -36,7 +36,7 @@ A TikTok video downloader. Paste one or many links and get clean **HD / Full HD*
 2. Tap **Paste from Clipboard** (or type a TikTok link into the input).
 3. That's it — the video is queued and downloads automatically when it's ready.
 
-Paste as many links as you want. The app downloads several at once and saves each file to your device the moment it's ready. Completed items clear themselves after a few seconds so the screen stays tidy. If a download fails, it shows you why and retries on its own.
+Paste as many links as you want. The app downloads several at once and starts saving each file to your device when it's ready. Completed items stay in the queue until you clear them, so you can use the Download button if the automatic download is blocked. When a link expires, you can process the video again. If processing fails, the app shows the reason and offers a retry.
 
 TikTok video URLs and short `vm.tiktok.com`, `vt.tiktok.com`, and `tt.site/t/...` share links are supported.
 

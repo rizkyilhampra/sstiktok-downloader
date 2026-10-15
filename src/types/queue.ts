@@ -1,6 +1,8 @@
 import type { DownloadResponse } from './api'
 
-export type QueueItemStatus = 'pending' | 'processing' | 'completed' | 'failed'
+export type QueueItemStatus = 'pending' | 'processing' | 'completed' | 'expired' | 'failed'
+
+export type RetryMode = 'resubmit' | 'poll' | 'restart'
 
 export interface QueueItemMetadata {
   author?: string
@@ -10,6 +12,7 @@ export interface QueueItemMetadata {
 
 export interface QueueItem {
   id: string
+  requestId: string
   url: string
   status: QueueItemStatus
   result: DownloadResponse | null
@@ -20,7 +23,9 @@ export interface QueueItem {
   maxAttempts?: number
   jobId?: string
   addedAt: number
-  completedAt?: number
+  submittedAt?: number
+  finishedAt?: number
+  retryMode?: RetryMode
   metadata?: QueueItemMetadata
 }
 
