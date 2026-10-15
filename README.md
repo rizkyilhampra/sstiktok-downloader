@@ -38,7 +38,7 @@ A TikTok video downloader. Paste one or many links and get clean **HD / Full HD*
 
 Paste as many links as you want. The app downloads several at once and saves each file to your device the moment it's ready. Completed items clear themselves after a few seconds so the screen stays tidy. If a download fails, it shows you why and retries on its own.
 
-Any URL containing `tiktok.com` works, including the short `vm.tiktok.com` and `vt.tiktok.com` share links.
+TikTok video URLs and short `vm.tiktok.com`, `vt.tiktok.com`, and `tt.site/t/...` share links are supported.
 
 ## Installation
 

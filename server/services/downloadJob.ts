@@ -1,6 +1,6 @@
 import { updateJob, failJob } from './jobStore.js';
 import { config } from '../config.js';
-import { getHDDownloadData, getHxRedirectUrl, getFinalDownloadUrl } from './tiktokApi.js';
+import { getHDDownloadData, getHxRedirectUrl, getFinalDownloadUrl, resolveTikTokUrl } from './tiktokApi.js';
 import { retryWithBackoff } from '../utils/retry.js';
 import { createFilename } from '../utils/filename.js';
 
@@ -15,7 +15,8 @@ export async function runDownloadJob(jobId: string, url: string): Promise<void> 
   try {
     const { result, attempt, retried } = await retryWithBackoff(
       async () => {
-        const downloadData = await getHDDownloadData(url);
+        const videoUrl = await resolveTikTokUrl(url);
+        const downloadData = await getHDDownloadData(videoUrl);
 
         const hxRedirectUrl = await getHxRedirectUrl(downloadData.directUrl, downloadData.ttValue);
         console.log('Got hx-redirect URL:', hxRedirectUrl);
@@ -28,6 +29,7 @@ export async function runDownloadJob(jobId: string, url: string): Promise<void> 
           quality: 'hd' as const,
           author: downloadData.author,
           description: downloadData.description,
+          videoUrl,
         };
       },
       config.maxAttempts,
@@ -37,7 +39,7 @@ export async function runDownloadJob(jobId: string, url: string): Promise<void> 
       async () => { await updateJob(jobId, { retryDelay: undefined }); },
     );
 
-    const filename = await createFilename(result.author, url);
+    const filename = await createFilename(result.author, result.videoUrl);
     console.log('Generated filename:', filename);
 
     await updateJob(jobId, {

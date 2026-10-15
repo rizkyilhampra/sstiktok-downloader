@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { TIKTOK_SHORT_URL_HOSTS, TIKTOK_URL_HOSTS } from '../config.js';
 import { STEP_TIMEOUT_MS, BROWSER_UA } from '../utils/retry.js';
 
 const COMMON_HEADERS = {
@@ -24,6 +25,27 @@ export interface HdDownloadData {
   ttValue: string;
   author: string;
   description: string;
+}
+
+export async function resolveTikTokUrl(raw: string): Promise<string> {
+  const url = new URL(raw);
+  if (!TIKTOK_SHORT_URL_HOSTS.includes(url.hostname)) return raw;
+
+  const response = await axios.head(raw, {
+    maxRedirects: 0,
+    validateStatus: (status) => status >= 300 && status < 400,
+    timeout: STEP_TIMEOUT_MS,
+    headers: { 'User-Agent': BROWSER_UA },
+  });
+  const location = response.headers.location;
+  if (typeof location !== 'string') throw new Error('TikTok short link has no redirect');
+
+  const destination = new URL(location, raw);
+  if (destination.protocol !== 'https:' || destination.username || destination.password || destination.port ||
+      !TIKTOK_URL_HOSTS.includes(destination.hostname)) {
+    throw new Error('TikTok short link redirected outside TikTok');
+  }
+  return destination.toString();
 }
 
 export async function getHDDownloadData(tiktokUrl: string): Promise<HdDownloadData> {

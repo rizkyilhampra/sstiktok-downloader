@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { createJob, deleteJob } from '../services/jobStore.js';
-import { config, TIKTOK_URL_HOSTS } from '../config.js';
+import { config, TIKTOK_SHORT_URL_HOSTS, TIKTOK_URL_HOSTS } from '../config.js';
 import { downloadQueue } from '../services/downloadQueue.js';
 import { DOWNLOAD_JOB_NAME } from '../services/queueNames.js';
 
@@ -18,7 +18,12 @@ function isValidTikTokUrl(raw: string): boolean {
     return false;
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+  if (parsed.username || parsed.password || parsed.port) return false;
+
   const host = parsed.hostname.toLowerCase();
+  if (TIKTOK_SHORT_URL_HOSTS.includes(host)) {
+    return parsed.protocol === 'https:' && /^\/t\/[A-Za-z0-9]+\/?$/.test(parsed.pathname);
+  }
   return TIKTOK_URL_HOSTS.includes(host);
 }
 

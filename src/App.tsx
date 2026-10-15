@@ -10,7 +10,26 @@ import type { QueueItem, QueueState } from '@/types/queue'
 import { usePollJob } from '@/hooks/usePollJob'
 import type { ClientConfigResponse } from '@/types/api'
 
-const isTikTokUrl = (url: string) => url.includes('tiktok.com')
+function isTikTokUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port) return false
+    if (['tt.site', 'www.tt.site'].includes(url.hostname)) {
+      return url.protocol === 'https:' && /^\/t\/[A-Za-z0-9]+\/?$/.test(url.pathname)
+    }
+    return ['tiktok.com', 'www.tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com'].includes(url.hostname)
+  } catch {
+    return false
+  }
+}
+
+function findTikTokUrl(text: string): string | null {
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
+    const candidate = match[0].replace(/[),.!?]+$/, '')
+    if (isTikTokUrl(candidate)) return candidate
+  }
+  return null
+}
 const DEFAULT_MAX_CONCURRENT_DOWNLOADS = 3
 const DEFAULT_MAX_ATTEMPTS = 5
 const AUTO_HIDE_MS = 10_000
@@ -155,17 +174,16 @@ function App() {
   }, [])
 
   // Handle inbound Share Target intents from the PWA share sheet.
-  // Regex anchors tiktok.com as the host so foreign apps can't smuggle in
-  // arbitrary URLs by embedding the substring "tiktok.com" in a query string.
+  // Share text can contain a caption around the link.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const shared = params.get('url') ?? params.get('text') ?? params.get('title')
     if (!shared) {
       return
     }
-    const match = shared.match(/https?:\/\/(?:[a-z0-9-]+\.)*tiktok\.com\/[^\s]*/i)
-    if (match) {
-      tryAddToQueue(match[0])
+    const sharedUrl = findTikTokUrl(shared)
+    if (sharedUrl) {
+      tryAddToQueue(sharedUrl)
     }
     window.history.replaceState({}, '', '/')
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,15 +238,15 @@ function App() {
       return
     }
 
-    const isValidUrl = isTikTokUrl(value) && (value.includes('http://') || value.includes('https://') || value.startsWith('www.'))
+    const videoUrl = findTikTokUrl(value)
     setIsValidating(true)
 
     debounceTimerRef.current = setTimeout(() => {
       setIsValidating(false)
-      if (!isValidUrl) {
+      if (!videoUrl) {
         toast.error('Invalid TikTok URL format')
       } else {
-        tryAddToQueue(value)
+        tryAddToQueue(videoUrl)
       }
     }, 1500)
   }
@@ -272,11 +290,12 @@ function App() {
         toast.error('Clipboard is empty. Copy a TikTok URL first.')
         return
       }
-      if (!isTikTokUrl(text)) {
+      const videoUrl = findTikTokUrl(text)
+      if (!videoUrl) {
         toast.error("Clipboard doesn't contain a TikTok URL")
         return
       }
-      tryAddToQueue(text.trim())
+      tryAddToQueue(videoUrl)
     } catch (err) {
       toast.error(
         err instanceof Error && err.name === 'NotAllowedError'

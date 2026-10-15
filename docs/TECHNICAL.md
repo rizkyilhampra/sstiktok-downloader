@@ -47,7 +47,7 @@ Because every request is handled server-side, users never see ssstik.io's ads.
 
 ### `POST /api/download`
 
-Body: `{ "url": string, "requestId"?: string }`. The `url` must contain `tiktok.com`. A client-supplied `requestId` is used as the idempotency key (and `jobId`); if omitted, the server generates one.
+Body: `{ "url": string, "requestId"?: string }`. The `url` must use an allowed TikTok host or the `tt.site/t/...` short-link format. The worker resolves `tt.site` redirects to a TikTok URL before extraction. A client-supplied `requestId` is used as the idempotency key (and `jobId`); if omitted, the server generates one.
 
 * `200` → `{ jobId, maxAttempts }`
 * `400` → `{ success: false, error, errorType, suggestion? }` (missing or invalid URL)

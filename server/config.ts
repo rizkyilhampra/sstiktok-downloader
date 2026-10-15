@@ -22,6 +22,11 @@ export const TIKTOK_URL_HOSTS = [
   'vt.tiktok.com',
 ];
 
+export const TIKTOK_SHORT_URL_HOSTS = [
+  'tt.site',
+  'www.tt.site',
+];
+
 export const config = {
   port: readPositiveInt('PORT', 3000),
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
